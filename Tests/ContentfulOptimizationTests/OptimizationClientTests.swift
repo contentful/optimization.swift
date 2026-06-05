@@ -5,6 +5,16 @@ import XCTest
 
 final class OptimizationClientTests: XCTestCase {
 
+    override func setUp() {
+        super.setUp()
+        UserDefaultsStore().clear()
+    }
+
+    override func tearDown() {
+        UserDefaultsStore().clear()
+        super.tearDown()
+    }
+
     // MARK: - Config Tests
 
     func testConfigToJSON() throws {
@@ -12,17 +22,124 @@ final class OptimizationClientTests: XCTestCase {
             clientId: "test-client",
             environment: "master",
             experienceBaseUrl: "http://localhost:8000/experience/",
-            insightsBaseUrl: "http://localhost:8000/insights/"
+            insightsBaseUrl: "http://localhost:8000/insights/",
+            locale: "en-US"
         )
 
         let json = try config.toJSON()
         let data = json.data(using: .utf8)!
-        let dict = try JSONSerialization.jsonObject(with: data) as! [String: String]
+        let dict = try JSONSerialization.jsonObject(with: data) as! [String: Any]
 
-        XCTAssertEqual(dict["clientId"], "test-client")
-        XCTAssertEqual(dict["environment"], "master")
-        XCTAssertEqual(dict["experienceBaseUrl"], "http://localhost:8000/experience/")
-        XCTAssertEqual(dict["insightsBaseUrl"], "http://localhost:8000/insights/")
+        XCTAssertEqual(dict["clientId"] as? String, "test-client")
+        XCTAssertEqual(dict["environment"] as? String, "master")
+        XCTAssertEqual(dict["experienceBaseUrl"] as? String, "http://localhost:8000/experience/")
+        XCTAssertEqual(dict["insightsBaseUrl"] as? String, "http://localhost:8000/insights/")
+        XCTAssertEqual(dict["locale"] as? String, "en-US")
+    }
+
+    func testConfigToJSONSerializesPersistenceConsentDefault() throws {
+        let config = OptimizationConfig(
+            clientId: "test-client",
+            defaults: StorageDefaults(consent: true, persistenceConsent: false)
+        )
+
+        let json = try config.toJSON()
+        let data = json.data(using: .utf8)!
+        let dict = try JSONSerialization.jsonObject(with: data) as! [String: Any]
+        let defaults = dict["defaults"] as? [String: Any]
+
+        XCTAssertEqual(defaults?["consent"] as? Bool, true)
+        XCTAssertEqual(defaults?["persistenceConsent"] as? Bool, false)
+    }
+
+    func testConfigToJSONSerializesBridgeOnlyAnonymousIdDefault() throws {
+        let config = OptimizationConfig(clientId: "test-client")
+
+        let json = try config.toJSON(anonymousId: "anonymous-id")
+        let data = json.data(using: .utf8)!
+        let dict = try JSONSerialization.jsonObject(with: data) as! [String: Any]
+        let defaults = dict["defaults"] as? [String: Any]
+
+        XCTAssertEqual(defaults?["anonymousId"] as? String, "anonymous-id")
+    }
+
+    func testConfigToJSONResolvesContentfulLocales() throws {
+        let config = OptimizationConfig(
+            clientId: "test-client",
+            contentfulLocales: ContentfulLocales(
+                default: "en-US",
+                supported: ["en-US", "de-DE", "fr-FR"]
+            )
+        )
+
+        let json = try config.toJSON(localeCandidates: ["de-AT", "es-ES"])
+        let data = json.data(using: .utf8)!
+        let dict = try JSONSerialization.jsonObject(with: data) as! [String: Any]
+
+        XCTAssertEqual(dict["locale"] as? String, "de-DE")
+        XCTAssertNotNil(dict["contentfulLocales"])
+    }
+
+    func testConfigToJSONResolvesDefaultOnlyContentfulLocales() throws {
+        let config = OptimizationConfig(
+            clientId: "test-client",
+            contentfulLocales: ContentfulLocales(default: "en-US")
+        )
+
+        let json = try config.toJSON(localeCandidates: ["de-AT", "es-ES"])
+        let data = json.data(using: .utf8)!
+        let dict = try JSONSerialization.jsonObject(with: data) as! [String: Any]
+        let contentfulLocales = dict["contentfulLocales"] as? [String: Any]
+
+        XCTAssertEqual(dict["locale"] as? String, "en-US")
+        XCTAssertEqual(contentfulLocales?["default"] as? String, "en-US")
+        XCTAssertEqual(contentfulLocales?["supported"] as? [String], [])
+        XCTAssertEqual(try config.resolvedLocale(candidates: ["de-AT"]), "en-US")
+    }
+
+    func testExplicitLocaleIsResolvedAgainstContentfulLocales() throws {
+        let config = OptimizationConfig(
+            clientId: "test-client",
+            contentfulLocales: ContentfulLocales(
+                default: "en-US",
+                supported: ["en-US", "de-DE"]
+            ),
+            locale: "de-AT"
+        )
+
+        XCTAssertEqual(try config.resolvedLocale(candidates: ["fr-FR"]), "de-DE")
+    }
+
+    func testApiLocaleSerializesNestedApiConfig() throws {
+        let config = OptimizationConfig(
+            clientId: "test-client",
+            contentfulLocales: ContentfulLocales(
+                default: "en-US",
+                supported: ["en-US", "de-DE"]
+            ),
+            locale: "de-AT",
+            api: OptimizationApiConfig(locale: "fr-FR")
+        )
+
+        let json = try config.toJSON()
+        let data = json.data(using: .utf8)!
+        let dict = try JSONSerialization.jsonObject(with: data) as! [String: Any]
+        let api = dict["api"] as? [String: Any]
+
+        XCTAssertEqual(dict["locale"] as? String, "de-DE")
+        XCTAssertEqual(api?["locale"] as? String, "fr-FR")
+    }
+
+    func testExactLocaleMatchesWinBeforeFallbackMatches() throws {
+        let config = OptimizationConfig(
+            clientId: "test-client",
+            contentfulLocales: ContentfulLocales(
+                default: "en-US",
+                supported: ["en-US", "de-DE", "fr-FR"]
+            )
+        )
+
+        XCTAssertEqual(try config.resolvedLocale(candidates: ["de-AT", "fr-FR"]), "fr-FR")
     }
 
     func testConfigDefaultEnvironment() {
@@ -30,6 +147,8 @@ final class OptimizationClientTests: XCTestCase {
         XCTAssertEqual(config.environment, "master")
         XCTAssertNil(config.experienceBaseUrl)
         XCTAssertNil(config.insightsBaseUrl)
+        XCTAssertNil(config.locale)
+        XCTAssertNil(config.api)
     }
 
     func testConfigToJSONOmitsNilUrls() throws {
@@ -76,6 +195,7 @@ final class OptimizationClientTests: XCTestCase {
         XCTAssertNil(state.consent)
         XCTAssertFalse(state.canPersonalize)
         XCTAssertNil(state.changes)
+        XCTAssertNil(state.locale)
     }
 
     func testOptimizationStateEquality() {
@@ -306,7 +426,8 @@ final class OptimizationClientTests: XCTestCase {
         if let data = stateStr.data(using: .utf8),
            let dict = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
         {
-            XCTAssertTrue(dict.keys.contains("consent"))
+            XCTAssertNil(dict["consent"])
+            XCTAssertNil(dict["persistenceConsent"])
             XCTAssertTrue(dict.keys.contains("canPersonalize"))
             XCTAssertTrue(dict.keys.contains("selectedPersonalizations"))
         } else {
@@ -424,6 +545,7 @@ final class OptimizationClientTests: XCTestCase {
 
         // Should not throw
         client.consent(true)
+        client.consent(events: true, persistence: false)
         client.consent(false)
     }
 
@@ -444,6 +566,152 @@ final class OptimizationClientTests: XCTestCase {
     }
 
     @MainActor
+    func testClientResetPreservesConsentAndClearsProfileContinuity() async throws {
+        let client = OptimizationClient()
+        try client.initialize(config: OptimizationConfig(
+            clientId: "test-client",
+            environment: "master",
+            experienceBaseUrl: "http://localhost:8000/experience/",
+            insightsBaseUrl: "http://localhost:8000/insights/",
+            defaults: StorageDefaults(
+                consent: true,
+                persistenceConsent: true,
+                profile: ["id": "profile-before-reset", "stableId": "sid", "random": "r"],
+                changes: [["key": "hero.title", "type": "Variable", "value": "Hello"]],
+                personalizations: [["experienceId": "exp-1", "variantIndex": 1]]
+            )
+        ))
+
+        try await Task.sleep(nanoseconds: 200_000_000)
+        client.reset()
+
+        let store = UserDefaultsStore()
+        store.loadConsentState()
+        store.loadProfileContinuity()
+        XCTAssertEqual(store.consent, true)
+        XCTAssertEqual(store.persistenceConsent, true)
+        XCTAssertNil(store.profile)
+        XCTAssertNil(store.changes)
+        XCTAssertNil(store.personalizations)
+        XCTAssertNil(store.anonymousId)
+    }
+
+    @MainActor
+    func testClientDestroyPreservesStoredConsentAndProfileContinuity() async throws {
+        let client = OptimizationClient()
+        try client.initialize(config: OptimizationConfig(
+            clientId: "test-client",
+            environment: "master",
+            experienceBaseUrl: "http://localhost:8000/experience/",
+            insightsBaseUrl: "http://localhost:8000/insights/",
+            defaults: StorageDefaults(
+                consent: true,
+                persistenceConsent: true,
+                profile: ["id": "profile-before-destroy", "stableId": "sid", "random": "r"],
+                changes: [["key": "hero.title", "type": "Variable", "value": "Hello"]],
+                personalizations: [["experienceId": "exp-1", "variantIndex": 1]]
+            )
+        ))
+
+        try await Task.sleep(nanoseconds: 200_000_000)
+        client.destroy()
+
+        let store = UserDefaultsStore()
+        store.loadConsentState()
+        store.loadProfileContinuity()
+        XCTAssertEqual(store.consent, true)
+        XCTAssertEqual(store.persistenceConsent, true)
+        XCTAssertEqual(store.profile?["id"] as? String, "profile-before-destroy")
+        XCTAssertNotNil(store.changes)
+        XCTAssertNotNil(store.personalizations)
+        XCTAssertEqual(store.anonymousId, "profile-before-destroy")
+    }
+
+    func testStoreLoadConsentStateDoesNotLoadProfileContinuity() {
+        let store = UserDefaultsStore()
+        store.consent = true
+        store.persistenceConsent = true
+        store.profile = ["id": "profile-id", "stableId": "sid", "random": "r"]
+        store.changes = [["key": "hero.title", "type": "Variable", "value": "Hello"]]
+        store.personalizations = [["experienceId": "exp-1", "variantIndex": 1]]
+        store.anonymousId = "anonymous-id"
+
+        let reloadedStore = UserDefaultsStore()
+        reloadedStore.loadConsentState()
+
+        XCTAssertEqual(reloadedStore.consent, true)
+        XCTAssertEqual(reloadedStore.persistenceConsent, true)
+        XCTAssertNil(reloadedStore.profile)
+        XCTAssertNil(reloadedStore.changes)
+        XCTAssertNil(reloadedStore.personalizations)
+        XCTAssertNil(reloadedStore.anonymousId)
+
+        reloadedStore.loadProfileContinuity()
+
+        XCTAssertEqual(reloadedStore.profile?["id"] as? String, "profile-id")
+        XCTAssertEqual(reloadedStore.changes?.first?["key"] as? String, "hero.title")
+        XCTAssertEqual(reloadedStore.personalizations?.first?["experienceId"] as? String, "exp-1")
+        XCTAssertEqual(reloadedStore.anonymousId, "anonymous-id")
+    }
+
+    @MainActor
+    func testClientInitializationClearsDeniedPersistedProfileContinuity() throws {
+        let store = UserDefaultsStore()
+        store.consent = true
+        store.persistenceConsent = false
+        store.profile = ["id": "stored-profile", "stableId": "sid", "random": "r"]
+        store.changes = [["key": "hero.title", "type": "Variable", "value": "Hello"]]
+        store.personalizations = [["experienceId": "exp-1", "variantIndex": 1]]
+        store.anonymousId = "anonymous-id"
+
+        let client = OptimizationClient()
+        defer { client.destroy() }
+
+        try client.initialize(config: OptimizationConfig(
+            clientId: "test-client",
+            environment: "master",
+            experienceBaseUrl: "http://localhost:8000/experience/",
+            insightsBaseUrl: "http://localhost:8000/insights/"
+        ))
+
+        XCTAssertNil(client.getProfile())
+
+        let reloadedStore = UserDefaultsStore()
+        reloadedStore.loadConsentState()
+        reloadedStore.loadProfileContinuity()
+
+        XCTAssertEqual(reloadedStore.consent, true)
+        XCTAssertEqual(reloadedStore.persistenceConsent, false)
+        XCTAssertNil(reloadedStore.profile)
+        XCTAssertNil(reloadedStore.changes)
+        XCTAssertNil(reloadedStore.personalizations)
+        XCTAssertNil(reloadedStore.anonymousId)
+    }
+
+    @MainActor
+    func testClientInitializationRestoresAcceptedPersistedProfileContinuity() throws {
+        let store = UserDefaultsStore()
+        store.consent = true
+        store.persistenceConsent = true
+        store.profile = ["id": "stored-profile", "stableId": "sid", "random": "r"]
+        store.changes = [["key": "hero.title", "type": "Variable", "value": "Hello"]]
+        store.personalizations = [["experienceId": "exp-1", "variantIndex": 1]]
+        store.anonymousId = "anonymous-id"
+
+        let client = OptimizationClient()
+        defer { client.destroy() }
+
+        try client.initialize(config: OptimizationConfig(
+            clientId: "test-client",
+            environment: "master",
+            experienceBaseUrl: "http://localhost:8000/experience/",
+            insightsBaseUrl: "http://localhost:8000/insights/"
+        ))
+
+        XCTAssertEqual(client.getProfile()?["id"] as? String, "stored-profile")
+    }
+
+    @MainActor
     func testClientSetOnlineCallsThrough() throws {
         let client = OptimizationClient()
         let config = OptimizationConfig(
@@ -458,6 +726,42 @@ final class OptimizationClientTests: XCTestCase {
         // Should not throw
         client.setOnline(true)
         client.setOnline(false)
+    }
+
+    @MainActor
+    func testClientSetLocaleUpdatesResolvedLocale() throws {
+        let client = OptimizationClient()
+        let config = OptimizationConfig(
+            clientId: "test-client",
+            environment: "master",
+            experienceBaseUrl: "http://localhost:8000/experience/",
+            insightsBaseUrl: "http://localhost:8000/insights/",
+            contentfulLocales: ContentfulLocales(
+                default: "en-US",
+                supported: ["en-US", "de-DE"]
+            )
+        )
+
+        try client.initialize(config: config)
+
+        XCTAssertEqual(client.locale, "en-US")
+        XCTAssertEqual(try client.setLocale("de-AT"), "de-DE")
+        XCTAssertEqual(client.locale, "de-DE")
+    }
+
+    @MainActor
+    func testClientSetLocaleRejectsInvalidLocale() throws {
+        let client = OptimizationClient()
+        let config = OptimizationConfig(
+            clientId: "test-client",
+            environment: "master",
+            experienceBaseUrl: "http://localhost:8000/experience/",
+            insightsBaseUrl: "http://localhost:8000/insights/"
+        )
+
+        try client.initialize(config: config)
+
+        XCTAssertThrowsError(try client.setLocale("*"))
     }
 
     @MainActor
@@ -1181,7 +1485,7 @@ final class OptimizationClientTests: XCTestCase {
             environment: "master",
             experienceBaseUrl: "http://localhost:8000/experience/",
             insightsBaseUrl: "http://localhost:8000/insights/",
-            defaults: StorageDefaults(profile: [
+            defaults: StorageDefaults(persistenceConsent: true, profile: [
                 "id": "abc-123", "stableId": "sid", "random": "r"
             ])
         ))
@@ -1202,7 +1506,7 @@ final class OptimizationClientTests: XCTestCase {
             environment: "master",
             experienceBaseUrl: "http://localhost:8000/experience/",
             insightsBaseUrl: "http://localhost:8000/insights/",
-            defaults: StorageDefaults(profile: [
+            defaults: StorageDefaults(persistenceConsent: true, profile: [
                 "id": "first-id", "stableId": "sid", "random": "r"
             ])
         ))
@@ -1217,6 +1521,7 @@ final class OptimizationClientTests: XCTestCase {
                 experienceBaseUrl: "http://localhost:8000/experience/",
                 insightsBaseUrl: "http://localhost:8000/insights/",
                 defaults: {
+                    persistenceConsent: true,
                     profile: { stableId: "sid", random: "r" }
                 }
             });
