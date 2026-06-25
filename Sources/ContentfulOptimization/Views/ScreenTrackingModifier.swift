@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// A `ViewModifier` that calls `client.screen(name:)` when the view appears.
+/// A `ViewModifier` that emits a screen event when the view appears.
 public struct ScreenTrackingModifier: ViewModifier {
     let screenName: String
 
@@ -9,10 +9,21 @@ public struct ScreenTrackingModifier: ViewModifier {
     public func body(content: Content) -> some View {
         content
             .onAppear {
-                Task {
-                    try? await client.screen(name: screenName)
-                }
+                trackScreenIfAllowed()
             }
+            .onChange(of: client.state.consent) { _ in
+                trackScreenIfAllowed()
+            }
+            .onChange(of: screenName) { _ in
+                trackScreenIfAllowed()
+            }
+    }
+
+    private func trackScreenIfAllowed() {
+        let requestedScreenName = screenName
+        Task {
+            _ = try? await client.trackCurrentScreen(name: requestedScreenName)
+        }
     }
 }
 

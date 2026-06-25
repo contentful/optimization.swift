@@ -21,8 +21,10 @@ final class OptimizationClientTests: XCTestCase {
         let config = OptimizationConfig(
             clientId: "test-client",
             environment: "master",
-            experienceBaseUrl: "http://localhost:8000/experience/",
-            insightsBaseUrl: "http://localhost:8000/insights/",
+            api: OptimizationApiConfig(
+                experienceBaseUrl: "http://localhost:8000/experience/",
+                insightsBaseUrl: "http://localhost:8000/insights/"
+            ),
             locale: "en-US"
         )
 
@@ -32,9 +34,76 @@ final class OptimizationClientTests: XCTestCase {
 
         XCTAssertEqual(dict["clientId"] as? String, "test-client")
         XCTAssertEqual(dict["environment"] as? String, "master")
-        XCTAssertEqual(dict["experienceBaseUrl"] as? String, "http://localhost:8000/experience/")
-        XCTAssertEqual(dict["insightsBaseUrl"] as? String, "http://localhost:8000/insights/")
+        let api = dict["api"] as? [String: Any]
+        XCTAssertEqual(api?["experienceBaseUrl"] as? String, "http://localhost:8000/experience/")
+        XCTAssertEqual(api?["insightsBaseUrl"] as? String, "http://localhost:8000/insights/")
         XCTAssertEqual(dict["locale"] as? String, "en-US")
+        XCTAssertEqual(dict["logLevel"] as? String, "error")
+    }
+
+    func testConfigToJSONSerializesApiOptionsAndLogLevel() throws {
+        let config = OptimizationConfig(
+            clientId: "test-client",
+            api: OptimizationApiConfig(
+                experienceBaseUrl: "http://localhost:8000/experience/",
+                insightsBaseUrl: "http://localhost:8000/insights/",
+                enabledFeatures: ["audiences", "experiences"],
+                preflight: true
+            ),
+            logLevel: .debug
+        )
+
+        let json = try config.toJSON()
+        let data = json.data(using: .utf8)!
+        let dict = try JSONSerialization.jsonObject(with: data) as! [String: Any]
+        let api = dict["api"] as? [String: Any]
+
+        XCTAssertNil(dict["experienceBaseUrl"])
+        XCTAssertNil(dict["insightsBaseUrl"])
+        XCTAssertEqual(api?["experienceBaseUrl"] as? String, "http://localhost:8000/experience/")
+        XCTAssertEqual(api?["insightsBaseUrl"] as? String, "http://localhost:8000/insights/")
+        XCTAssertEqual(api?["enabledFeatures"] as? [String], ["audiences", "experiences"])
+        XCTAssertEqual(api?["preflight"] as? Bool, true)
+        XCTAssertEqual(dict["logLevel"] as? String, "debug")
+    }
+
+    func testConfigToJSONSerializesQueuePolicyKnobs() throws {
+        let config = OptimizationConfig(
+            clientId: "test-client",
+            queuePolicy: QueuePolicy(
+                flush: QueueFlushPolicy(
+                    flushIntervalMs: 1000,
+                    baseBackoffMs: 200,
+                    maxBackoffMs: 4000,
+                    jitterRatio: 0.25,
+                    maxConsecutiveFailures: 3,
+                    circuitOpenMs: 5000
+                ),
+                offlineMaxEvents: 10,
+                onOfflineDrop: { _ in },
+                onFlushFailure: { _ in },
+                onCircuitOpen: { _ in },
+                onFlushRecovered: { _ in }
+            )
+        )
+
+        let json = try config.toJSON()
+        let data = json.data(using: .utf8)!
+        let dict = try JSONSerialization.jsonObject(with: data) as! [String: Any]
+        let queuePolicy = dict["queuePolicy"] as? [String: Any]
+        let flush = queuePolicy?["flush"] as? [String: Any]
+
+        XCTAssertEqual(queuePolicy?["offlineMaxEvents"] as? Int, 10)
+        XCTAssertEqual(flush?["flushIntervalMs"] as? Int, 1000)
+        XCTAssertEqual(flush?["baseBackoffMs"] as? Int, 200)
+        XCTAssertEqual(flush?["maxBackoffMs"] as? Int, 4000)
+        XCTAssertEqual(flush?["jitterRatio"] as? Double, 0.25)
+        XCTAssertEqual(flush?["maxConsecutiveFailures"] as? Int, 3)
+        XCTAssertEqual(flush?["circuitOpenMs"] as? Int, 5000)
+        XCTAssertNil(queuePolicy?["onOfflineDrop"])
+        XCTAssertNil(flush?["onFlushFailure"])
+        XCTAssertNil(flush?["onCircuitOpen"])
+        XCTAssertNil(flush?["onFlushRecovered"])
     }
 
     func testConfigToJSONSerializesPersistenceConsentDefault() throws {
@@ -63,92 +132,74 @@ final class OptimizationClientTests: XCTestCase {
         XCTAssertEqual(defaults?["anonymousId"] as? String, "anonymous-id")
     }
 
-    func testConfigToJSONResolvesContentfulLocales() throws {
+    func testConfigToJSONNormalizesExplicitLocale() throws {
         let config = OptimizationConfig(
             clientId: "test-client",
-            contentfulLocales: ContentfulLocales(
-                default: "en-US",
-                supported: ["en-US", "de-DE", "fr-FR"]
-            )
-        )
-
-        let json = try config.toJSON(localeCandidates: ["de-AT", "es-ES"])
-        let data = json.data(using: .utf8)!
-        let dict = try JSONSerialization.jsonObject(with: data) as! [String: Any]
-
-        XCTAssertEqual(dict["locale"] as? String, "de-DE")
-        XCTAssertNotNil(dict["contentfulLocales"])
-    }
-
-    func testConfigToJSONResolvesDefaultOnlyContentfulLocales() throws {
-        let config = OptimizationConfig(
-            clientId: "test-client",
-            contentfulLocales: ContentfulLocales(default: "en-US")
-        )
-
-        let json = try config.toJSON(localeCandidates: ["de-AT", "es-ES"])
-        let data = json.data(using: .utf8)!
-        let dict = try JSONSerialization.jsonObject(with: data) as! [String: Any]
-        let contentfulLocales = dict["contentfulLocales"] as? [String: Any]
-
-        XCTAssertEqual(dict["locale"] as? String, "en-US")
-        XCTAssertEqual(contentfulLocales?["default"] as? String, "en-US")
-        XCTAssertEqual(contentfulLocales?["supported"] as? [String], [])
-        XCTAssertEqual(try config.resolvedLocale(candidates: ["de-AT"]), "en-US")
-    }
-
-    func testExplicitLocaleIsResolvedAgainstContentfulLocales() throws {
-        let config = OptimizationConfig(
-            clientId: "test-client",
-            contentfulLocales: ContentfulLocales(
-                default: "en-US",
-                supported: ["en-US", "de-DE"]
-            ),
-            locale: "de-AT"
-        )
-
-        XCTAssertEqual(try config.resolvedLocale(candidates: ["fr-FR"]), "de-DE")
-    }
-
-    func testApiLocaleSerializesNestedApiConfig() throws {
-        let config = OptimizationConfig(
-            clientId: "test-client",
-            contentfulLocales: ContentfulLocales(
-                default: "en-US",
-                supported: ["en-US", "de-DE"]
-            ),
-            locale: "de-AT",
-            api: OptimizationApiConfig(locale: "fr-FR")
+            locale: " de_DE "
         )
 
         let json = try config.toJSON()
         let data = json.data(using: .utf8)!
         let dict = try JSONSerialization.jsonObject(with: data) as! [String: Any]
-        let api = dict["api"] as? [String: Any]
 
         XCTAssertEqual(dict["locale"] as? String, "de-DE")
-        XCTAssertEqual(api?["locale"] as? String, "fr-FR")
+        XCTAssertEqual(try config.normalizedLocale(), "de-DE")
     }
 
-    func testExactLocaleMatchesWinBeforeFallbackMatches() throws {
+    func testConfigToJSONOmitsLocaleWhenUnset() throws {
         let config = OptimizationConfig(
-            clientId: "test-client",
-            contentfulLocales: ContentfulLocales(
-                default: "en-US",
-                supported: ["en-US", "de-DE", "fr-FR"]
-            )
+            clientId: "test-client"
         )
 
-        XCTAssertEqual(try config.resolvedLocale(candidates: ["de-AT", "fr-FR"]), "fr-FR")
+        let json = try config.toJSON()
+        let data = json.data(using: .utf8)!
+        let dict = try JSONSerialization.jsonObject(with: data) as! [String: Any]
+
+        XCTAssertNil(dict["locale"])
+        XCTAssertNil(try config.normalizedLocale())
+    }
+
+    func testConfigToJSONSerializesAllowedEventTypes() throws {
+        let config = OptimizationConfig(
+            clientId: "test-client",
+            allowedEventTypes: ["identify", "screen", "flag"]
+        )
+
+        let json = try config.toJSON()
+        let data = json.data(using: .utf8)!
+        let dict = try JSONSerialization.jsonObject(with: data) as! [String: Any]
+
+        XCTAssertEqual(dict["allowedEventTypes"] as? [String], ["identify", "screen", "flag"])
+    }
+
+    func testConfigToJSONSerializesEmptyAllowedEventTypes() throws {
+        let config = OptimizationConfig(
+            clientId: "test-client",
+            allowedEventTypes: []
+        )
+
+        let json = try config.toJSON()
+        let data = json.data(using: .utf8)!
+        let dict = try JSONSerialization.jsonObject(with: data) as! [String: Any]
+
+        XCTAssertEqual(dict["allowedEventTypes"] as? [String], [])
+    }
+
+    func testConfigToJSONRejectsInvalidLocale() throws {
+        let config = OptimizationConfig(
+            clientId: "test-client",
+            locale: "*"
+        )
+
+        XCTAssertThrowsError(try config.toJSON())
     }
 
     func testConfigDefaultEnvironment() {
         let config = OptimizationConfig(clientId: "test")
-        XCTAssertEqual(config.environment, "master")
-        XCTAssertNil(config.experienceBaseUrl)
-        XCTAssertNil(config.insightsBaseUrl)
-        XCTAssertNil(config.locale)
+        XCTAssertEqual(config.environment, "main")
         XCTAssertNil(config.api)
+        XCTAssertNil(config.locale)
+        XCTAssertEqual(config.logLevel, .error)
     }
 
     func testConfigToJSONOmitsNilUrls() throws {
@@ -157,18 +208,19 @@ final class OptimizationClientTests: XCTestCase {
         let data = json.data(using: .utf8)!
         let dict = try JSONSerialization.jsonObject(with: data) as! [String: String]
 
-        XCTAssertEqual(dict.count, 2)
+        XCTAssertEqual(dict.count, 3)
         XCTAssertEqual(dict["clientId"], "test")
-        XCTAssertEqual(dict["environment"], "master")
+        XCTAssertEqual(dict["environment"], "main")
+        XCTAssertEqual(dict["logLevel"], "error")
     }
 
-    func testConfigSerializesDefaultsAsOptimizationsKey() throws {
+    func testConfigSerializesDefaultsAsSelectedOptimizationsKey() throws {
         let seeded: [[String: Any]] = [
             ["experienceId": "exp-1", "variantIndex": 2]
         ]
         let config = OptimizationConfig(
             clientId: "test",
-            defaults: StorageDefaults(personalizations: seeded)
+            defaults: StorageDefaults(selectedOptimizations: seeded)
         )
 
         let json = try config.toJSON()
@@ -176,12 +228,12 @@ final class OptimizationClientTests: XCTestCase {
         let dict = try JSONSerialization.jsonObject(with: data) as! [String: Any]
         let defaults = dict["defaults"] as? [String: Any]
 
-        XCTAssertNotNil(defaults?["optimizations"],
-                        "Bridge reads defaults.optimizations; Swift must serialize under that key")
-        XCTAssertNil(defaults?["personalizations"],
+        XCTAssertNotNil(defaults?["selectedOptimizations"],
+                        "Bridge reads defaults.selectedOptimizations; Swift must serialize under that key")
+        XCTAssertNil(defaults?["optimizations"],
                      "Old key name must not be emitted")
 
-        let optimizations = defaults?["optimizations"] as? [[String: Any]]
+        let optimizations = defaults?["selectedOptimizations"] as? [[String: Any]]
         XCTAssertEqual(optimizations?.count, 1)
         XCTAssertEqual(optimizations?.first?["experienceId"] as? String, "exp-1")
         XCTAssertEqual(optimizations?.first?["variantIndex"] as? Int, 2)
@@ -193,7 +245,9 @@ final class OptimizationClientTests: XCTestCase {
         let state = OptimizationState.empty
         XCTAssertNil(state.profile)
         XCTAssertNil(state.consent)
-        XCTAssertFalse(state.canPersonalize)
+        XCTAssertFalse(state.canOptimize)
+        XCTAssertFalse(state.optimizationPossible)
+        XCTAssertEqual(state.experienceRequestState["status"] as? String, "idle")
         XCTAssertNil(state.changes)
         XCTAssertNil(state.locale)
     }
@@ -202,14 +256,16 @@ final class OptimizationClientTests: XCTestCase {
         let a = OptimizationState(
             profile: ["userId": "test"] as [String: Any],
             consent: true,
-            canPersonalize: true,
-            changes: nil
+            canOptimize: true,
+            changes: nil,
+            selectedOptimizations: [["experienceId": "exp-1", "variantIndex": 1]]
         )
         let b = OptimizationState(
             profile: ["userId": "test"] as [String: Any],
             consent: true,
-            canPersonalize: true,
-            changes: nil
+            canOptimize: true,
+            changes: nil,
+            selectedOptimizations: [["variantIndex": 1, "experienceId": "exp-1"]]
         )
         XCTAssertEqual(a, b)
     }
@@ -218,13 +274,13 @@ final class OptimizationClientTests: XCTestCase {
         let a = OptimizationState(
             profile: ["userId": "u1", "email": "a@b.com", "plan": "pro"] as [String: Any],
             consent: true,
-            canPersonalize: true,
+            canOptimize: true,
             changes: [["key": "hero", "value": "A"] as [String: Any]]
         )
         let b = OptimizationState(
             profile: ["plan": "pro", "email": "a@b.com", "userId": "u1"] as [String: Any],
             consent: true,
-            canPersonalize: true,
+            canOptimize: true,
             changes: [["key": "hero", "value": "A"] as [String: Any]]
         )
         XCTAssertEqual(a, b, "States with identical profile contents in different key order must be equal")
@@ -234,13 +290,13 @@ final class OptimizationClientTests: XCTestCase {
         let a = OptimizationState(
             profile: nil,
             consent: true,
-            canPersonalize: true,
+            canOptimize: true,
             changes: nil
         )
         let b = OptimizationState(
             profile: nil,
             consent: false,
-            canPersonalize: true,
+            canOptimize: true,
             changes: nil
         )
         XCTAssertNotEqual(a, b)
@@ -273,8 +329,10 @@ final class OptimizationClientTests: XCTestCase {
         let config = OptimizationConfig(
             clientId: "test-client",
             environment: "master",
-            experienceBaseUrl: "http://localhost:8000/experience/",
-            insightsBaseUrl: "http://localhost:8000/insights/"
+            api: OptimizationApiConfig(
+                experienceBaseUrl: "http://localhost:8000/experience/",
+                insightsBaseUrl: "http://localhost:8000/insights/"
+            )
         )
 
         try manager.initialize(config: config)
@@ -352,8 +410,10 @@ final class OptimizationClientTests: XCTestCase {
         let config = OptimizationConfig(
             clientId: "test-client",
             environment: "master",
-            experienceBaseUrl: "http://localhost:8000/experience/",
-            insightsBaseUrl: "http://localhost:8000/insights/"
+            api: OptimizationApiConfig(
+                experienceBaseUrl: "http://localhost:8000/experience/",
+                insightsBaseUrl: "http://localhost:8000/insights/"
+            )
         )
 
         var logMessages: [(String, String)] = []
@@ -376,8 +436,10 @@ final class OptimizationClientTests: XCTestCase {
         let config = OptimizationConfig(
             clientId: "test-client",
             environment: "master",
-            experienceBaseUrl: "http://localhost:8000/experience/",
-            insightsBaseUrl: "http://localhost:8000/insights/"
+            api: OptimizationApiConfig(
+                experienceBaseUrl: "http://localhost:8000/experience/",
+                insightsBaseUrl: "http://localhost:8000/insights/"
+            )
         )
 
         try manager.initialize(config: config)
@@ -393,8 +455,10 @@ final class OptimizationClientTests: XCTestCase {
         let config = OptimizationConfig(
             clientId: "test-client",
             environment: "master",
-            experienceBaseUrl: "http://localhost:8000/experience/",
-            insightsBaseUrl: "http://localhost:8000/insights/"
+            api: OptimizationApiConfig(
+                experienceBaseUrl: "http://localhost:8000/experience/",
+                insightsBaseUrl: "http://localhost:8000/insights/"
+            )
         )
 
         try manager.initialize(config: config)
@@ -410,8 +474,10 @@ final class OptimizationClientTests: XCTestCase {
         let config = OptimizationConfig(
             clientId: "test-client",
             environment: "master",
-            experienceBaseUrl: "http://localhost:8000/experience/",
-            insightsBaseUrl: "http://localhost:8000/insights/"
+            api: OptimizationApiConfig(
+                experienceBaseUrl: "http://localhost:8000/experience/",
+                insightsBaseUrl: "http://localhost:8000/insights/"
+            )
         )
 
         try manager.initialize(config: config)
@@ -428,8 +494,10 @@ final class OptimizationClientTests: XCTestCase {
         {
             XCTAssertNil(dict["consent"])
             XCTAssertNil(dict["persistenceConsent"])
-            XCTAssertTrue(dict.keys.contains("canPersonalize"))
-            XCTAssertTrue(dict.keys.contains("selectedPersonalizations"))
+            XCTAssertTrue(dict.keys.contains("canOptimize"))
+            XCTAssertTrue(dict.keys.contains("optimizationPossible"))
+            XCTAssertEqual((dict["experienceRequestState"] as? [String: Any])?["status"] as? String, "idle")
+            XCTAssertTrue(dict.keys.contains("selectedOptimizations"))
         } else {
             XCTFail("getState should return valid JSON")
         }
@@ -442,7 +510,7 @@ final class OptimizationClientTests: XCTestCase {
         let client = OptimizationClient()
         XCTAssertFalse(client.isInitialized)
         XCTAssertEqual(client.state, OptimizationState.empty)
-        XCTAssertNil(client.selectedPersonalizations)
+        XCTAssertNil(client.selectedOptimizations)
     }
 
     @MainActor
@@ -451,12 +519,34 @@ final class OptimizationClientTests: XCTestCase {
         let config = OptimizationConfig(
             clientId: "test-client",
             environment: "master",
-            experienceBaseUrl: "http://localhost:8000/experience/",
-            insightsBaseUrl: "http://localhost:8000/insights/"
+            api: OptimizationApiConfig(
+                experienceBaseUrl: "http://localhost:8000/experience/",
+                insightsBaseUrl: "http://localhost:8000/insights/"
+            )
         )
 
         try client.initialize(config: config)
         XCTAssertTrue(client.isInitialized)
+    }
+
+    @MainActor
+    func testClientPublishesCoreEquivalentStateSurfaces() async throws {
+        let client = OptimizationClient()
+        try client.initialize(config: OptimizationConfig(
+            clientId: "test-client",
+            environment: "master",
+            api: OptimizationApiConfig(
+                experienceBaseUrl: "http://localhost:8000/experience/",
+                insightsBaseUrl: "http://localhost:8000/insights/"
+            )
+        ))
+
+        try await Task.sleep(nanoseconds: 100_000_000)
+
+        XCTAssertTrue(client.optimizationPossible)
+        XCTAssertEqual(client.experienceRequestState["status"] as? String, "idle")
+        XCTAssertTrue(client.state.optimizationPossible)
+        XCTAssertEqual(client.state.experienceRequestState["status"] as? String, "idle")
     }
 
     @MainActor
@@ -465,8 +555,10 @@ final class OptimizationClientTests: XCTestCase {
         let config = OptimizationConfig(
             clientId: "test-client",
             environment: "master",
-            experienceBaseUrl: "http://localhost:8000/experience/",
-            insightsBaseUrl: "http://localhost:8000/insights/"
+            api: OptimizationApiConfig(
+                experienceBaseUrl: "http://localhost:8000/experience/",
+                insightsBaseUrl: "http://localhost:8000/insights/"
+            )
         )
 
         try client.initialize(config: config)
@@ -475,7 +567,9 @@ final class OptimizationClientTests: XCTestCase {
         client.destroy()
         XCTAssertFalse(client.isInitialized)
         XCTAssertEqual(client.state, OptimizationState.empty)
-        XCTAssertNil(client.selectedPersonalizations)
+        XCTAssertNil(client.selectedOptimizations)
+        XCTAssertFalse(client.optimizationPossible)
+        XCTAssertEqual(client.experienceRequestState["status"] as? String, "idle")
     }
 
     @MainActor
@@ -484,8 +578,10 @@ final class OptimizationClientTests: XCTestCase {
         let config = OptimizationConfig(
             clientId: "test-client",
             environment: "master",
-            experienceBaseUrl: "http://localhost:8000/experience/",
-            insightsBaseUrl: "http://localhost:8000/insights/"
+            api: OptimizationApiConfig(
+                experienceBaseUrl: "http://localhost:8000/experience/",
+                insightsBaseUrl: "http://localhost:8000/insights/"
+            )
         )
 
         try client.initialize(config: config)
@@ -529,6 +625,122 @@ final class OptimizationClientTests: XCTestCase {
         }
     }
 
+    @MainActor
+    func testClientTrackCallsBridgePayload() async throws {
+        let client = OptimizationClient()
+        try client.initialize(config: OptimizationConfig(
+            clientId: "test-client",
+            api: OptimizationApiConfig(
+                experienceBaseUrl: "http://localhost:8000/experience/",
+                insightsBaseUrl: "http://localhost:8000/insights/"
+            )
+        ))
+
+        client.testOnlyEvaluateScript("""
+            __bridge.track = function(payload, onSuccess, onError) {
+                globalThis.__lastTrackPayload = JSON.stringify(payload);
+                onSuccess(JSON.stringify({
+                    accepted: true,
+                    data: {
+                        event: payload.event,
+                        properties: payload.properties || null
+                    }
+                }));
+            };
+        """)
+
+        let result = try await client.track(
+            event: "Purchase Completed",
+            properties: ["revenue": 99, "sku": "sku-1"]
+        )
+
+        XCTAssertTrue(result.accepted)
+        XCTAssertEqual(result.data?["event"] as? String, "Purchase Completed")
+        let resultProperties = result.data?["properties"] as? [String: Any]
+        XCTAssertEqual(resultProperties?["revenue"] as? Int, 99)
+        XCTAssertEqual(resultProperties?["sku"] as? String, "sku-1")
+
+        let payloadJSON = client.testOnlyEvaluateScript("__lastTrackPayload") ?? "{}"
+        let payloadData = payloadJSON.data(using: .utf8)!
+        let payload = try JSONSerialization.jsonObject(with: payloadData) as! [String: Any]
+        let properties = payload["properties"] as? [String: Any]
+
+        XCTAssertEqual(payload["event"] as? String, "Purchase Completed")
+        XCTAssertEqual(properties?["revenue"] as? Int, 99)
+        XCTAssertEqual(properties?["sku"] as? String, "sku-1")
+    }
+
+    @MainActor
+    func testClientFlagAPIsResolveAndPublishJSONValues() throws {
+        let client = OptimizationClient()
+        try client.initialize(config: OptimizationConfig(
+            clientId: "test-client",
+            api: OptimizationApiConfig(
+                experienceBaseUrl: "http://localhost:8000/experience/",
+                insightsBaseUrl: "http://localhost:8000/insights/"
+            ),
+            defaults: StorageDefaults(
+                consent: true,
+                profile: ["id": "profile-1"],
+                changes: [[
+                    "key": "boolean",
+                    "type": "Variable",
+                    "value": true,
+                    "meta": ["experienceId": "exp-1", "variantIndex": 1],
+                ]]
+            )
+        ))
+
+        XCTAssertEqual(client.getFlag("boolean"), .bool(true))
+
+        let flagExpectation = expectation(description: "flag publisher emits current value")
+        let cancellable = client.flagPublisher("boolean").sink { value in
+            if value == .bool(true) {
+                flagExpectation.fulfill()
+            }
+        }
+
+        wait(for: [flagExpectation], timeout: 1)
+        withExtendedLifetime(cancellable) {}
+    }
+
+    @MainActor
+    func testClientExposesEventAndBlockedEventStreams() throws {
+        let client = OptimizationClient()
+        try client.initialize(config: OptimizationConfig(
+            clientId: "test-client",
+            api: OptimizationApiConfig(
+                experienceBaseUrl: "http://localhost:8000/experience/",
+                insightsBaseUrl: "http://localhost:8000/insights/"
+            )
+        ))
+
+        let eventExpectation = expectation(description: "event stream emits bridge event")
+        let blockedExpectation = expectation(description: "blocked event stream emits bridge event")
+        let eventCancellable = client.eventStream.sink { event in
+            if event["type"] as? String == "track" {
+                eventExpectation.fulfill()
+            }
+        }
+        let blockedCancellable = client.blockedEventStream.sink { blocked in
+            if blocked.method == "trackClick" {
+                blockedExpectation.fulfill()
+            }
+        }
+
+        client.testOnlyEvaluateScript("""
+            __nativeOnEventEmitted(JSON.stringify({ type: "track", event: "debug" }));
+            __nativeOnEventBlocked(JSON.stringify({
+                reason: "consent",
+                method: "trackClick",
+                args: [{ componentId: "entry-1" }]
+            }));
+        """)
+
+        wait(for: [eventExpectation, blockedExpectation], timeout: 1)
+        withExtendedLifetime((eventCancellable, blockedCancellable)) {}
+    }
+
     // MARK: - Phase 2: Sync Method Tests
 
     @MainActor
@@ -537,8 +749,10 @@ final class OptimizationClientTests: XCTestCase {
         let config = OptimizationConfig(
             clientId: "test-client",
             environment: "master",
-            experienceBaseUrl: "http://localhost:8000/experience/",
-            insightsBaseUrl: "http://localhost:8000/insights/"
+            api: OptimizationApiConfig(
+                experienceBaseUrl: "http://localhost:8000/experience/",
+                insightsBaseUrl: "http://localhost:8000/insights/"
+            )
         )
 
         try client.initialize(config: config)
@@ -555,8 +769,10 @@ final class OptimizationClientTests: XCTestCase {
         let config = OptimizationConfig(
             clientId: "test-client",
             environment: "master",
-            experienceBaseUrl: "http://localhost:8000/experience/",
-            insightsBaseUrl: "http://localhost:8000/insights/"
+            api: OptimizationApiConfig(
+                experienceBaseUrl: "http://localhost:8000/experience/",
+                insightsBaseUrl: "http://localhost:8000/insights/"
+            )
         )
 
         try client.initialize(config: config)
@@ -571,14 +787,16 @@ final class OptimizationClientTests: XCTestCase {
         try client.initialize(config: OptimizationConfig(
             clientId: "test-client",
             environment: "master",
-            experienceBaseUrl: "http://localhost:8000/experience/",
-            insightsBaseUrl: "http://localhost:8000/insights/",
+            api: OptimizationApiConfig(
+                experienceBaseUrl: "http://localhost:8000/experience/",
+                insightsBaseUrl: "http://localhost:8000/insights/"
+            ),
             defaults: StorageDefaults(
                 consent: true,
                 persistenceConsent: true,
                 profile: ["id": "profile-before-reset", "stableId": "sid", "random": "r"],
                 changes: [["key": "hero.title", "type": "Variable", "value": "Hello"]],
-                personalizations: [["experienceId": "exp-1", "variantIndex": 1]]
+                selectedOptimizations: [["experienceId": "exp-1", "variantIndex": 1]]
             )
         ))
 
@@ -592,7 +810,7 @@ final class OptimizationClientTests: XCTestCase {
         XCTAssertEqual(store.persistenceConsent, true)
         XCTAssertNil(store.profile)
         XCTAssertNil(store.changes)
-        XCTAssertNil(store.personalizations)
+        XCTAssertNil(store.selectedOptimizations)
         XCTAssertNil(store.anonymousId)
     }
 
@@ -602,14 +820,16 @@ final class OptimizationClientTests: XCTestCase {
         try client.initialize(config: OptimizationConfig(
             clientId: "test-client",
             environment: "master",
-            experienceBaseUrl: "http://localhost:8000/experience/",
-            insightsBaseUrl: "http://localhost:8000/insights/",
+            api: OptimizationApiConfig(
+                experienceBaseUrl: "http://localhost:8000/experience/",
+                insightsBaseUrl: "http://localhost:8000/insights/"
+            ),
             defaults: StorageDefaults(
                 consent: true,
                 persistenceConsent: true,
                 profile: ["id": "profile-before-destroy", "stableId": "sid", "random": "r"],
                 changes: [["key": "hero.title", "type": "Variable", "value": "Hello"]],
-                personalizations: [["experienceId": "exp-1", "variantIndex": 1]]
+                selectedOptimizations: [["experienceId": "exp-1", "variantIndex": 1]]
             )
         ))
 
@@ -623,7 +843,7 @@ final class OptimizationClientTests: XCTestCase {
         XCTAssertEqual(store.persistenceConsent, true)
         XCTAssertEqual(store.profile?["id"] as? String, "profile-before-destroy")
         XCTAssertNotNil(store.changes)
-        XCTAssertNotNil(store.personalizations)
+        XCTAssertNotNil(store.selectedOptimizations)
         XCTAssertEqual(store.anonymousId, "profile-before-destroy")
     }
 
@@ -633,7 +853,7 @@ final class OptimizationClientTests: XCTestCase {
         store.persistenceConsent = true
         store.profile = ["id": "profile-id", "stableId": "sid", "random": "r"]
         store.changes = [["key": "hero.title", "type": "Variable", "value": "Hello"]]
-        store.personalizations = [["experienceId": "exp-1", "variantIndex": 1]]
+        store.selectedOptimizations = [["experienceId": "exp-1", "variantIndex": 1]]
         store.anonymousId = "anonymous-id"
 
         let reloadedStore = UserDefaultsStore()
@@ -643,14 +863,14 @@ final class OptimizationClientTests: XCTestCase {
         XCTAssertEqual(reloadedStore.persistenceConsent, true)
         XCTAssertNil(reloadedStore.profile)
         XCTAssertNil(reloadedStore.changes)
-        XCTAssertNil(reloadedStore.personalizations)
+        XCTAssertNil(reloadedStore.selectedOptimizations)
         XCTAssertNil(reloadedStore.anonymousId)
 
         reloadedStore.loadProfileContinuity()
 
         XCTAssertEqual(reloadedStore.profile?["id"] as? String, "profile-id")
         XCTAssertEqual(reloadedStore.changes?.first?["key"] as? String, "hero.title")
-        XCTAssertEqual(reloadedStore.personalizations?.first?["experienceId"] as? String, "exp-1")
+        XCTAssertEqual(reloadedStore.selectedOptimizations?.first?["experienceId"] as? String, "exp-1")
         XCTAssertEqual(reloadedStore.anonymousId, "anonymous-id")
     }
 
@@ -661,7 +881,7 @@ final class OptimizationClientTests: XCTestCase {
         store.persistenceConsent = false
         store.profile = ["id": "stored-profile", "stableId": "sid", "random": "r"]
         store.changes = [["key": "hero.title", "type": "Variable", "value": "Hello"]]
-        store.personalizations = [["experienceId": "exp-1", "variantIndex": 1]]
+        store.selectedOptimizations = [["experienceId": "exp-1", "variantIndex": 1]]
         store.anonymousId = "anonymous-id"
 
         let client = OptimizationClient()
@@ -670,8 +890,10 @@ final class OptimizationClientTests: XCTestCase {
         try client.initialize(config: OptimizationConfig(
             clientId: "test-client",
             environment: "master",
-            experienceBaseUrl: "http://localhost:8000/experience/",
-            insightsBaseUrl: "http://localhost:8000/insights/"
+            api: OptimizationApiConfig(
+                experienceBaseUrl: "http://localhost:8000/experience/",
+                insightsBaseUrl: "http://localhost:8000/insights/"
+            )
         ))
 
         XCTAssertNil(client.getProfile())
@@ -684,7 +906,7 @@ final class OptimizationClientTests: XCTestCase {
         XCTAssertEqual(reloadedStore.persistenceConsent, false)
         XCTAssertNil(reloadedStore.profile)
         XCTAssertNil(reloadedStore.changes)
-        XCTAssertNil(reloadedStore.personalizations)
+        XCTAssertNil(reloadedStore.selectedOptimizations)
         XCTAssertNil(reloadedStore.anonymousId)
     }
 
@@ -695,7 +917,7 @@ final class OptimizationClientTests: XCTestCase {
         store.persistenceConsent = true
         store.profile = ["id": "stored-profile", "stableId": "sid", "random": "r"]
         store.changes = [["key": "hero.title", "type": "Variable", "value": "Hello"]]
-        store.personalizations = [["experienceId": "exp-1", "variantIndex": 1]]
+        store.selectedOptimizations = [["experienceId": "exp-1", "variantIndex": 1]]
         store.anonymousId = "anonymous-id"
 
         let client = OptimizationClient()
@@ -704,8 +926,10 @@ final class OptimizationClientTests: XCTestCase {
         try client.initialize(config: OptimizationConfig(
             clientId: "test-client",
             environment: "master",
-            experienceBaseUrl: "http://localhost:8000/experience/",
-            insightsBaseUrl: "http://localhost:8000/insights/"
+            api: OptimizationApiConfig(
+                experienceBaseUrl: "http://localhost:8000/experience/",
+                insightsBaseUrl: "http://localhost:8000/insights/"
+            )
         ))
 
         XCTAssertEqual(client.getProfile()?["id"] as? String, "stored-profile")
@@ -717,8 +941,10 @@ final class OptimizationClientTests: XCTestCase {
         let config = OptimizationConfig(
             clientId: "test-client",
             environment: "master",
-            experienceBaseUrl: "http://localhost:8000/experience/",
-            insightsBaseUrl: "http://localhost:8000/insights/"
+            api: OptimizationApiConfig(
+                experienceBaseUrl: "http://localhost:8000/experience/",
+                insightsBaseUrl: "http://localhost:8000/insights/"
+            )
         )
 
         try client.initialize(config: config)
@@ -734,18 +960,17 @@ final class OptimizationClientTests: XCTestCase {
         let config = OptimizationConfig(
             clientId: "test-client",
             environment: "master",
-            experienceBaseUrl: "http://localhost:8000/experience/",
-            insightsBaseUrl: "http://localhost:8000/insights/",
-            contentfulLocales: ContentfulLocales(
-                default: "en-US",
-                supported: ["en-US", "de-DE"]
-            )
+            api: OptimizationApiConfig(
+                experienceBaseUrl: "http://localhost:8000/experience/",
+                insightsBaseUrl: "http://localhost:8000/insights/"
+            ),
+            locale: "en-US"
         )
 
         try client.initialize(config: config)
 
         XCTAssertEqual(client.locale, "en-US")
-        XCTAssertEqual(try client.setLocale("de-AT"), "de-DE")
+        XCTAssertEqual(try client.setLocale(" de_DE "), "de-DE")
         XCTAssertEqual(client.locale, "de-DE")
     }
 
@@ -755,8 +980,10 @@ final class OptimizationClientTests: XCTestCase {
         let config = OptimizationConfig(
             clientId: "test-client",
             environment: "master",
-            experienceBaseUrl: "http://localhost:8000/experience/",
-            insightsBaseUrl: "http://localhost:8000/insights/"
+            api: OptimizationApiConfig(
+                experienceBaseUrl: "http://localhost:8000/experience/",
+                insightsBaseUrl: "http://localhost:8000/insights/"
+            )
         )
 
         try client.initialize(config: config)
@@ -774,26 +1001,28 @@ final class OptimizationClientTests: XCTestCase {
         client.setOnline(false)
     }
 
-    // MARK: - Phase 2: personalizeEntry Tests
+    // MARK: - Phase 2: resolveOptimizedEntry Tests
 
     @MainActor
-    func testPersonalizeEntryReturnsBaselineWhenNotInitialized() {
+    func testResolveOptimizedEntryReturnsBaselineWhenNotInitialized() {
         let client = OptimizationClient()
         let baseline: [String: Any] = ["sys": ["id": "entry1"], "fields": ["title": "Hello"]]
 
-        let result = client.personalizeEntry(baseline: baseline)
+        let result = client.resolveOptimizedEntry(baseline: baseline)
         XCTAssertEqual(result.entry["fields"] as? [String: String], ["title": "Hello"])
-        XCTAssertNil(result.personalization)
+        XCTAssertNil(result.selectedOptimization)
     }
 
     @MainActor
-    func testPersonalizeEntryReturnsBaselineWhenInitialized() throws {
+    func testResolveOptimizedEntryReturnsBaselineWhenInitialized() throws {
         let client = OptimizationClient()
         let config = OptimizationConfig(
             clientId: "test-client",
             environment: "master",
-            experienceBaseUrl: "http://localhost:8000/experience/",
-            insightsBaseUrl: "http://localhost:8000/insights/"
+            api: OptimizationApiConfig(
+                experienceBaseUrl: "http://localhost:8000/experience/",
+                insightsBaseUrl: "http://localhost:8000/insights/"
+            )
         )
 
         try client.initialize(config: config)
@@ -803,19 +1032,21 @@ final class OptimizationClientTests: XCTestCase {
             "fields": ["title": "Hello"],
         ]
 
-        // Without personalizations set, should return baseline
-        let result = client.personalizeEntry(baseline: baseline)
+        // Without selectedOptimizations set, should return baseline
+        let result = client.resolveOptimizedEntry(baseline: baseline)
         XCTAssertNotNil(result.entry)
     }
 
     @MainActor
-    func testPersonalizeEntryDoesNotProduceJSExceptions() throws {
+    func testResolveOptimizedEntryDoesNotProduceJSExceptions() throws {
         let client = OptimizationClient()
         let config = OptimizationConfig(
             clientId: "test-client",
             environment: "master",
-            experienceBaseUrl: "http://localhost:8000/experience/",
-            insightsBaseUrl: "http://localhost:8000/insights/"
+            api: OptimizationApiConfig(
+                experienceBaseUrl: "http://localhost:8000/experience/",
+                insightsBaseUrl: "http://localhost:8000/insights/"
+            )
         )
 
         try client.initialize(config: config)
@@ -833,22 +1064,24 @@ final class OptimizationClientTests: XCTestCase {
             "fields": ["title": "Hello"],
         ]
 
-        let result = client.personalizeEntry(baseline: baseline)
+        let result = client.resolveOptimizedEntry(baseline: baseline)
         XCTAssertNotNil(result.entry)
         XCTAssertTrue(
             jsExceptions.isEmpty,
-            "personalizeEntry should not produce JS exceptions, got: \(jsExceptions)"
+            "resolveOptimizedEntry should not produce JS exceptions, got: \(jsExceptions)"
         )
     }
 
     @MainActor
-    func testPersonalizeEntryPreservesFieldsWhenInitialized() throws {
+    func testResolveOptimizedEntryPreservesFieldsWhenInitialized() throws {
         let client = OptimizationClient()
         let config = OptimizationConfig(
             clientId: "test-client",
             environment: "master",
-            experienceBaseUrl: "http://localhost:8000/experience/",
-            insightsBaseUrl: "http://localhost:8000/insights/"
+            api: OptimizationApiConfig(
+                experienceBaseUrl: "http://localhost:8000/experience/",
+                insightsBaseUrl: "http://localhost:8000/insights/"
+            )
         )
 
         try client.initialize(config: config)
@@ -858,9 +1091,9 @@ final class OptimizationClientTests: XCTestCase {
             "fields": ["title": "Hello", "slug": "hello-world"],
         ]
 
-        // personalizeEntry should round-trip the entry through JS and back
+        // resolveOptimizedEntry should round-trip the entry through JS and back
         // without losing fields (i.e. the JS bridge should actually process it)
-        let result = client.personalizeEntry(baseline: baseline)
+        let result = client.resolveOptimizedEntry(baseline: baseline)
         let fields = result.entry["fields"] as? [String: Any]
         XCTAssertEqual(fields?["title"] as? String, "Hello")
         XCTAssertEqual(fields?["slug"] as? String, "hello-world")
@@ -873,9 +1106,11 @@ final class OptimizationClientTests: XCTestCase {
             componentId: "comp-1",
             viewId: "view-1",
             experienceId: "exp-1",
+            optimizationContextId: "ctx-1",
             variantIndex: 2,
             viewDurationMs: 1500,
-            sticky: true
+            sticky: true,
+            stickyTrackingKey: "controller-1"
         )
 
         let json = try payload.toJSON()
@@ -885,9 +1120,11 @@ final class OptimizationClientTests: XCTestCase {
         XCTAssertEqual(dict["componentId"] as? String, "comp-1")
         XCTAssertEqual(dict["viewId"] as? String, "view-1")
         XCTAssertEqual(dict["experienceId"] as? String, "exp-1")
+        XCTAssertEqual(dict["optimizationContextId"] as? String, "ctx-1")
         XCTAssertEqual(dict["variantIndex"] as? Int, 2)
         XCTAssertEqual(dict["viewDurationMs"] as? Int, 1500)
         XCTAssertEqual(dict["sticky"] as? Bool, true)
+        XCTAssertEqual(dict["stickyTrackingKey"] as? String, "controller-1")
     }
 
     func testTrackViewPayloadOmitsOptionalFields() throws {
@@ -904,13 +1141,16 @@ final class OptimizationClientTests: XCTestCase {
 
         XCTAssertEqual(dict.count, 4)
         XCTAssertNil(dict["experienceId"])
+        XCTAssertNil(dict["optimizationContextId"])
         XCTAssertNil(dict["sticky"])
+        XCTAssertNil(dict["stickyTrackingKey"])
     }
 
     func testTrackClickPayloadToJSON() throws {
         let payload = TrackClickPayload(
             componentId: "comp-1",
             experienceId: "exp-1",
+            optimizationContextId: "ctx-1",
             variantIndex: 1
         )
 
@@ -920,6 +1160,7 @@ final class OptimizationClientTests: XCTestCase {
 
         XCTAssertEqual(dict["componentId"] as? String, "comp-1")
         XCTAssertEqual(dict["experienceId"] as? String, "exp-1")
+        XCTAssertEqual(dict["optimizationContextId"] as? String, "ctx-1")
         XCTAssertEqual(dict["variantIndex"] as? Int, 1)
     }
 
@@ -935,6 +1176,56 @@ final class OptimizationClientTests: XCTestCase {
 
         XCTAssertEqual(dict.count, 2)
         XCTAssertNil(dict["experienceId"])
+        XCTAssertNil(dict["optimizationContextId"])
+    }
+
+    func testTypedEventPayloadsToJSON() throws {
+        let identify = IdentifyPayload(
+            userId: "user-1",
+            traits: [
+                "plan": .string("pro"),
+                "score": .number(42.5),
+                "flags": .array([.bool(true), .null]),
+                "nested": .object(["tier": .string("enterprise")]),
+            ]
+        )
+        let identifyJSON = try identify.toJSON()
+        let identifyData = identifyJSON.data(using: .utf8)!
+        let identifyDict = try JSONSerialization.jsonObject(with: identifyData) as! [String: Any]
+        let traits = identifyDict["traits"] as? [String: Any]
+        let flags = traits?["flags"] as? [Any]
+
+        XCTAssertEqual(identifyDict["userId"] as? String, "user-1")
+        XCTAssertEqual(traits?["plan"] as? String, "pro")
+        XCTAssertEqual(traits?["score"] as? Double, 42.5)
+        XCTAssertEqual(flags?[0] as? Bool, true)
+        XCTAssertTrue(flags?[1] is NSNull)
+        XCTAssertEqual((traits?["nested"] as? [String: Any])?["tier"] as? String, "enterprise")
+
+        let page = PageEventPayload(properties: ["path": .string("/home")])
+        let pageData = try page.toJSON().data(using: .utf8)!
+        let pageDict = try JSONSerialization.jsonObject(with: pageData) as! [String: Any]
+        XCTAssertEqual(pageDict["path"] as? String, "/home")
+
+        let screen = ScreenEventPayload(
+            name: "Home",
+            properties: ["tab": .string("featured")],
+            routeKey: "home-route"
+        )
+        let screenData = try screen.toJSON().data(using: .utf8)!
+        let screenDict = try JSONSerialization.jsonObject(with: screenData) as! [String: Any]
+        XCTAssertEqual(screenDict["name"] as? String, "Home")
+        XCTAssertEqual((screenDict["properties"] as? [String: Any])?["tab"] as? String, "featured")
+        XCTAssertEqual(screenDict["routeKey"] as? String, "home-route")
+
+        let track = TrackEventPayload(
+            event: "Purchase Completed",
+            properties: ["sku": .string("sku-1")]
+        )
+        let trackData = try track.toJSON().data(using: .utf8)!
+        let trackDict = try JSONSerialization.jsonObject(with: trackData) as! [String: Any]
+        XCTAssertEqual(trackDict["event"] as? String, "Purchase Completed")
+        XCTAssertEqual((trackDict["properties"] as? [String: Any])?["sku"] as? String, "sku-1")
     }
 
     // MARK: - Phase 2: Async Method Not-Initialized Tests
@@ -976,6 +1267,24 @@ final class OptimizationClientTests: XCTestCase {
     }
 
     @MainActor
+    func testClientTrackThrowsWhenNotInitialized() async {
+        let client = OptimizationClient()
+
+        do {
+            _ = try await client.track(event: "Purchase Completed")
+            XCTFail("Should have thrown notInitialized error")
+        } catch let error as OptimizationError {
+            if case .notInitialized = error {
+                // Expected
+            } else {
+                XCTFail("Expected notInitialized, got \(error)")
+            }
+        } catch {
+            XCTFail("Unexpected error type: \(error)")
+        }
+    }
+
+    @MainActor
     func testClientTrackViewThrowsWhenNotInitialized() async {
         let client = OptimizationClient()
         let payload = TrackViewPayload(
@@ -1002,7 +1311,7 @@ final class OptimizationClientTests: XCTestCase {
         let payload = TrackClickPayload(componentId: "c1", variantIndex: 0)
 
         do {
-            _ = try await client.trackClick(payload)
+            try await client.trackClick(payload)
             XCTFail("Should have thrown notInitialized error")
         } catch let error as OptimizationError {
             if case .notInitialized = error {
@@ -1015,16 +1324,18 @@ final class OptimizationClientTests: XCTestCase {
         }
     }
 
-    // MARK: - Phase 2: Event Publisher Tests
+    // MARK: - Phase 2: Event Stream Tests
 
     @MainActor
-    func testEventPublisherReceivesEvents() throws {
+    func testEventStreamReceivesEvents() throws {
         let manager = JSContextManager()
         let config = OptimizationConfig(
             clientId: "test-client",
             environment: "master",
-            experienceBaseUrl: "http://localhost:8000/experience/",
-            insightsBaseUrl: "http://localhost:8000/insights/"
+            api: OptimizationApiConfig(
+                experienceBaseUrl: "http://localhost:8000/experience/",
+                insightsBaseUrl: "http://localhost:8000/insights/"
+            )
         )
 
         var receivedEvents: [[String: Any]] = []
@@ -1064,8 +1375,10 @@ final class OptimizationClientTests: XCTestCase {
         let config = OptimizationConfig(
             clientId: "test-client",
             environment: "master",
-            experienceBaseUrl: "http://localhost:8000/experience/",
-            insightsBaseUrl: "http://localhost:8000/insights/"
+            api: OptimizationApiConfig(
+                experienceBaseUrl: "http://localhost:8000/experience/",
+                insightsBaseUrl: "http://localhost:8000/insights/"
+            )
         )
 
         var loggedExceptions: [String] = []
@@ -1078,48 +1391,50 @@ final class OptimizationClientTests: XCTestCase {
         try manager.initialize(config: config)
 
         // Call a method that will throw a JS error
-        let result = manager.callSync(method: "personalizeEntry", args: "undefined")
+        let result = manager.callSync(method: "resolveOptimizedEntry", args: "undefined")
         XCTAssertNil(result, "callSync should return nil on JS exception")
         XCTAssertEqual(loggedExceptions.count, 1)
         XCTAssertTrue(
-            loggedExceptions[0].hasPrefix("[personalizeEntry]"),
+            loggedExceptions[0].hasPrefix("[resolveOptimizedEntry]"),
             "Exception log should include method name, got: \(loggedExceptions[0])"
         )
     }
 
-    // MARK: - Phase 2: selectedPersonalizations State Tests
+    // MARK: - Phase 2: selectedOptimizations State Tests
 
     @MainActor
-    func testSelectedPersonalizationsUpdatedFromState() throws {
+    func testSelectedOptimizationsUpdatedFromState() throws {
         let manager = JSContextManager()
         let config = OptimizationConfig(
             clientId: "test-client",
             environment: "master",
-            experienceBaseUrl: "http://localhost:8000/experience/",
-            insightsBaseUrl: "http://localhost:8000/insights/"
+            api: OptimizationApiConfig(
+                experienceBaseUrl: "http://localhost:8000/experience/",
+                insightsBaseUrl: "http://localhost:8000/insights/"
+            )
         )
 
         try manager.initialize(config: config)
 
-        // getState should include selectedPersonalizations field
+        // getState should include selectedOptimizations field
         let result = manager.callSync(method: "getState")
         let stateStr = result?.toString() ?? ""
         let data = stateStr.data(using: .utf8)!
         let dict = try JSONSerialization.jsonObject(with: data) as! [String: Any]
 
-        XCTAssertTrue(dict.keys.contains("selectedPersonalizations"))
+        XCTAssertTrue(dict.keys.contains("selectedOptimizations"))
     }
 
     // MARK: - Phase 3: TrackingMetadata Tests
 
     func testTrackingMetadataExtraction() {
         let entry: [String: Any] = ["sys": ["id": "entry-123"]]
-        let personalization: [String: Any] = [
+        let selectedOptimization: [String: Any] = [
             "experienceId": "exp-456",
             "variantIndex": 2,
             "sticky": true,
         ]
-        let metadata = TrackingMetadata(entry: entry, personalization: personalization)
+        let metadata = TrackingMetadata(entry: entry, selectedOptimization: selectedOptimization)
         XCTAssertEqual(metadata.componentId, "entry-123")
         XCTAssertEqual(metadata.experienceId, "exp-456")
         XCTAssertEqual(metadata.variantIndex, 2)
@@ -1128,7 +1443,7 @@ final class OptimizationClientTests: XCTestCase {
 
     func testTrackingMetadataDefaults() {
         let entry: [String: Any] = ["fields": ["title": "Hello"]]
-        let metadata = TrackingMetadata(entry: entry, personalization: nil)
+        let metadata = TrackingMetadata(entry: entry, selectedOptimization: nil)
         XCTAssertEqual(metadata.componentId, "")
         XCTAssertNil(metadata.experienceId)
         XCTAssertEqual(metadata.variantIndex, 0)
@@ -1178,14 +1493,24 @@ final class OptimizationClientTests: XCTestCase {
     // MARK: - Phase 3: ViewTrackingController Tests
 
     @MainActor
-    func testViewTrackingControllerInitiallyInvisible() {
+    private func makeViewTrackingClient(consent: Bool = true) -> OptimizationClient {
         let client = OptimizationClient()
+        try! client.initialize(config: OptimizationConfig(
+            clientId: "test-client",
+            defaults: StorageDefaults(consent: consent)
+        ))
+        return client
+    }
+
+    @MainActor
+    func testViewTrackingControllerInitiallyInvisible() {
+        let client = makeViewTrackingClient()
         let controller = ViewTrackingController(
             client: client,
             entry: ["sys": ["id": "test"]],
-            personalization: nil,
-            threshold: 0.8,
-            viewTimeMs: 2000,
+            selectedOptimization: nil,
+            minVisibleRatio: 0.8,
+            dwellTimeMs: 2000,
             viewDurationUpdateIntervalMs: 5000
         )
         XCTAssertFalse(controller.isVisible)
@@ -1193,17 +1518,17 @@ final class OptimizationClientTests: XCTestCase {
 
     @MainActor
     func testViewTrackingControllerBecomesVisibleAboveThreshold() {
-        let client = OptimizationClient()
+        let client = makeViewTrackingClient()
         let controller = ViewTrackingController(
             client: client,
             entry: ["sys": ["id": "test"]],
-            personalization: nil,
-            threshold: 0.8,
-            viewTimeMs: 2000,
+            selectedOptimization: nil,
+            minVisibleRatio: 0.8,
+            dwellTimeMs: 2000,
             viewDurationUpdateIntervalMs: 5000
         )
 
-        // Element fully visible (100% ratio >= 0.8 threshold)
+        // Element fully visible (100% ratio >= 0.8 minVisibleRatio)
         controller.updateVisibility(
             elementY: 0, elementHeight: 100, scrollY: 0, viewportHeight: 500
         )
@@ -1212,17 +1537,17 @@ final class OptimizationClientTests: XCTestCase {
 
     @MainActor
     func testViewTrackingControllerStaysInvisibleBelowThreshold() {
-        let client = OptimizationClient()
+        let client = makeViewTrackingClient()
         let controller = ViewTrackingController(
             client: client,
             entry: ["sys": ["id": "test"]],
-            personalization: nil,
-            threshold: 0.8,
-            viewTimeMs: 2000,
+            selectedOptimization: nil,
+            minVisibleRatio: 0.8,
+            dwellTimeMs: 2000,
             viewDurationUpdateIntervalMs: 5000
         )
 
-        // Only 10px of 100px element visible (10% < 80% threshold)
+        // Only 10px of 100px element visible (10% < 80% minVisibleRatio)
         controller.updateVisibility(
             elementY: 0, elementHeight: 100, scrollY: 0, viewportHeight: 10
         )
@@ -1230,14 +1555,32 @@ final class OptimizationClientTests: XCTestCase {
     }
 
     @MainActor
-    func testViewTrackingControllerBecomesInvisibleOnDisappear() {
-        let client = OptimizationClient()
+    func testViewTrackingControllerStaysInvisibleWithoutConsent() {
+        let client = makeViewTrackingClient(consent: false)
         let controller = ViewTrackingController(
             client: client,
             entry: ["sys": ["id": "test"]],
-            personalization: nil,
-            threshold: 0.8,
-            viewTimeMs: 2000,
+            selectedOptimization: nil,
+            minVisibleRatio: 0.8,
+            dwellTimeMs: 2000,
+            viewDurationUpdateIntervalMs: 5000
+        )
+
+        controller.updateVisibility(
+            elementY: 0, elementHeight: 100, scrollY: 0, viewportHeight: 500
+        )
+        XCTAssertFalse(controller.isVisible)
+    }
+
+    @MainActor
+    func testViewTrackingControllerBecomesInvisibleOnDisappear() {
+        let client = makeViewTrackingClient()
+        let controller = ViewTrackingController(
+            client: client,
+            entry: ["sys": ["id": "test"]],
+            selectedOptimization: nil,
+            minVisibleRatio: 0.8,
+            dwellTimeMs: 2000,
             viewDurationUpdateIntervalMs: 5000
         )
 
@@ -1252,13 +1595,13 @@ final class OptimizationClientTests: XCTestCase {
 
     @MainActor
     func testViewTrackingControllerResetsOnNewCycle() {
-        let client = OptimizationClient()
+        let client = makeViewTrackingClient()
         let controller = ViewTrackingController(
             client: client,
             entry: ["sys": ["id": "test"]],
-            personalization: nil,
-            threshold: 0.8,
-            viewTimeMs: 2000,
+            selectedOptimization: nil,
+            minVisibleRatio: 0.8,
+            dwellTimeMs: 2000,
             viewDurationUpdateIntervalMs: 5000
         )
 
@@ -1279,13 +1622,13 @@ final class OptimizationClientTests: XCTestCase {
 
     @MainActor
     func testViewTrackingControllerPauseAndResume() {
-        let client = OptimizationClient()
+        let client = makeViewTrackingClient()
         let controller = ViewTrackingController(
             client: client,
             entry: ["sys": ["id": "test"]],
-            personalization: nil,
-            threshold: 0.8,
-            viewTimeMs: 2000,
+            selectedOptimization: nil,
+            minVisibleRatio: 0.8,
+            dwellTimeMs: 2000,
             viewDurationUpdateIntervalMs: 5000
         )
 
@@ -1306,13 +1649,13 @@ final class OptimizationClientTests: XCTestCase {
 
     @MainActor
     func testViewTrackingControllerVisibilityWithPartialOverlap() {
-        let client = OptimizationClient()
+        let client = makeViewTrackingClient()
         let controller = ViewTrackingController(
             client: client,
             entry: ["sys": ["id": "test"]],
-            personalization: nil,
-            threshold: 0.5,
-            viewTimeMs: 2000,
+            selectedOptimization: nil,
+            minVisibleRatio: 0.5,
+            dwellTimeMs: 2000,
             viewDurationUpdateIntervalMs: 5000
         )
 
@@ -1333,13 +1676,13 @@ final class OptimizationClientTests: XCTestCase {
 
     @MainActor
     func testViewTrackingControllerZeroHeightIgnored() {
-        let client = OptimizationClient()
+        let client = makeViewTrackingClient()
         let controller = ViewTrackingController(
             client: client,
             entry: ["sys": ["id": "test"]],
-            personalization: nil,
-            threshold: 0.8,
-            viewTimeMs: 2000,
+            selectedOptimization: nil,
+            minVisibleRatio: 0.8,
+            dwellTimeMs: 2000,
             viewDurationUpdateIntervalMs: 5000
         )
 
@@ -1356,9 +1699,9 @@ final class OptimizationClientTests: XCTestCase {
         let controller = ViewTrackingController(
             client: client,
             entry: ["sys": ["id": "test"]],
-            personalization: nil,
-            threshold: 0.8,
-            viewTimeMs: 2000,
+            selectedOptimization: nil,
+            minVisibleRatio: 0.8,
+            dwellTimeMs: 2000,
             viewDurationUpdateIntervalMs: 5000
         )
 
@@ -1370,20 +1713,21 @@ final class OptimizationClientTests: XCTestCase {
         XCTAssertFalse(controller.isVisible)
     }
 
-    // MARK: - Phase 3: PersonalizedResult Baseline Resolution Test
+    // MARK: - Phase 3: ResolvedOptimizedEntry Baseline Resolution Test
 
     @MainActor
-    func testPersonalizationResolvesBaselineWithNoPersonalizations() {
+    func testOptimizationResolvesBaselineWithNoOptimizations() {
         let client = OptimizationClient()
         let baseline: [String: Any] = [
             "sys": ["id": "entry-1"],
             "fields": ["title": "Default Title"],
         ]
 
-        // Without initialization, personalizeEntry returns baseline
-        let result = client.personalizeEntry(baseline: baseline)
+        // Without initialization, resolveOptimizedEntry returns baseline
+        let result = client.resolveOptimizedEntry(baseline: baseline)
         XCTAssertEqual(result.entry["sys"] as? [String: String], ["id": "entry-1"])
-        XCTAssertNil(result.personalization)
+        XCTAssertNil(result.selectedOptimization)
+        XCTAssertNil(result.optimizationContextId)
     }
 
     // MARK: - TimerStore Isolation Tests
@@ -1454,8 +1798,10 @@ final class OptimizationClientTests: XCTestCase {
         let config = OptimizationConfig(
             clientId: "test-client",
             environment: "master",
-            experienceBaseUrl: "http://localhost:8000/experience/",
-            insightsBaseUrl: "http://localhost:8000/insights/"
+            api: OptimizationApiConfig(
+                experienceBaseUrl: "http://localhost:8000/experience/",
+                insightsBaseUrl: "http://localhost:8000/insights/"
+            )
         )
 
         try manager.initialize(config: config)
@@ -1483,8 +1829,10 @@ final class OptimizationClientTests: XCTestCase {
         try client.initialize(config: OptimizationConfig(
             clientId: "test-client",
             environment: "master",
-            experienceBaseUrl: "http://localhost:8000/experience/",
-            insightsBaseUrl: "http://localhost:8000/insights/",
+            api: OptimizationApiConfig(
+                experienceBaseUrl: "http://localhost:8000/experience/",
+                insightsBaseUrl: "http://localhost:8000/insights/"
+            ),
             defaults: StorageDefaults(persistenceConsent: true, profile: [
                 "id": "abc-123", "stableId": "sid", "random": "r"
             ])
@@ -1504,8 +1852,10 @@ final class OptimizationClientTests: XCTestCase {
         try client.initialize(config: OptimizationConfig(
             clientId: "test-client",
             environment: "master",
-            experienceBaseUrl: "http://localhost:8000/experience/",
-            insightsBaseUrl: "http://localhost:8000/insights/",
+            api: OptimizationApiConfig(
+                experienceBaseUrl: "http://localhost:8000/experience/",
+                insightsBaseUrl: "http://localhost:8000/insights/"
+            ),
             defaults: StorageDefaults(persistenceConsent: true, profile: [
                 "id": "first-id", "stableId": "sid", "random": "r"
             ])
@@ -1518,8 +1868,10 @@ final class OptimizationClientTests: XCTestCase {
             __bridge.initialize({
                 clientId: "test-client",
                 environment: "master",
-                experienceBaseUrl: "http://localhost:8000/experience/",
-                insightsBaseUrl: "http://localhost:8000/insights/",
+                api: {
+                    experienceBaseUrl: "http://localhost:8000/experience/",
+                    insightsBaseUrl: "http://localhost:8000/insights/"
+                },
                 defaults: {
                     persistenceConsent: true,
                     profile: { stableId: "sid", random: "r" }
@@ -1542,8 +1894,10 @@ final class OptimizationClientTests: XCTestCase {
         try client.initialize(config: OptimizationConfig(
             clientId: "test-client",
             environment: "master",
-            experienceBaseUrl: "http://localhost:8000/experience/",
-            insightsBaseUrl: "http://localhost:8000/insights/"
+            api: OptimizationApiConfig(
+                experienceBaseUrl: "http://localhost:8000/experience/",
+                insightsBaseUrl: "http://localhost:8000/insights/"
+            )
         ))
 
         client.testOnlyEvaluateScript("""
@@ -1551,8 +1905,10 @@ final class OptimizationClientTests: XCTestCase {
             __bridge.initialize({
                 clientId: "test-client",
                 environment: "master",
-                experienceBaseUrl: "http://localhost:8000/experience/",
-                insightsBaseUrl: "http://localhost:8000/insights/",
+                api: {
+                    experienceBaseUrl: "http://localhost:8000/experience/",
+                    insightsBaseUrl: "http://localhost:8000/insights/"
+                },
                 defaults: {
                     changes: [
                         { key: "hero.title", type: "Variable", meta: { experienceId: "exp-1", variantIndex: 1 }, value: "Hello" }
