@@ -1,4 +1,5 @@
 import Combine
+import Contentful
 import Foundation
 import JavaScriptCore
 
@@ -356,9 +357,11 @@ public final class OptimizationClient: ObservableObject {
         baseline: [String: Any],
         selectedOptimizations: [[String: Any]]? = nil
     ) -> ResolvedOptimizedEntry {
+        let baselineEntry = CTEntry(any: baseline)
+
         guard isInitialized else {
             return ResolvedOptimizedEntry(
-                entry: baseline,
+                entry: baselineEntry,
                 selectedOptimization: nil,
                 optimizationContextId: nil
             )
@@ -381,29 +384,37 @@ public final class OptimizationClient: ObservableObject {
                 let entryId = (baseline["sys"] as? [String: Any])?["id"] as? String ?? "unknown"
                 log.warning("[resolveOptimizedEntry] Failed to parse bridge result for entry \(entryId)")
                 return ResolvedOptimizedEntry(
-                    entry: baseline,
+                    entry: baselineEntry,
                     selectedOptimization: nil,
                     optimizationContextId: nil
                 )
             }
 
-            let entry = dict["entry"] as? [String: Any] ?? baseline
-            let selectedOptimization = dict["selectedOptimization"] as? [String: Any]
-            let optimizationContextId = dict["optimizationContextId"] as? String
-            return ResolvedOptimizedEntry(
-                entry: entry,
-                selectedOptimization: selectedOptimization,
-                optimizationContextId: optimizationContextId
-            )
+            return ResolvedOptimizedEntry.fromBridgeResult(dict, baselineEntry: baselineEntry)
         } catch {
             let entryId = (baseline["sys"] as? [String: Any])?["id"] as? String ?? "unknown"
             log.error("[resolveOptimizedEntry] Serialization error for entry \(entryId): \(error.localizedDescription)")
             return ResolvedOptimizedEntry(
-                entry: baseline,
+                entry: baselineEntry,
                 selectedOptimization: nil,
                 optimizationContextId: nil
             )
         }
+    }
+
+    /// `Contentful.Entry` overload of `resolveOptimizedEntry(baseline:selectedOptimizations:)` —
+    /// encodes `baseline` through `CTEntry(_: Contentful.Entry)` once, so callers stop
+    /// hand-writing the `Entry -> {sys, fields, metadata}` mapping outside of `OptimizedEntry`'s
+    /// view initializer. Delegates to the dict-based overload above (via `toDictionary()`), so it
+    /// inherits the same fail-soft behavior: not initialized, a serialization error, or an
+    /// unparseable bridge result all fall back to the mapped baseline with
+    /// `selectedOptimization`/`optimizationContextId` nil, logging rather than throwing.
+    public func resolveOptimizedEntry(
+        baseline: Contentful.Entry,
+        selectedOptimizations: [[String: Any]]? = nil
+    ) -> ResolvedOptimizedEntry {
+        let dictBaseline = CTEntry(baseline).toDictionary()
+        return resolveOptimizedEntry(baseline: dictBaseline, selectedOptimizations: selectedOptimizations)
     }
 
     /// Resolve a merge-tag entry's display value against the current profile.
@@ -475,7 +486,7 @@ public final class OptimizationClient: ObservableObject {
     }
 
     /// Return whether Core would currently allow the named event method.
-    func hasConsent(method: String) -> Bool {
+    public func hasConsent(method: String) -> Bool {
         guard isInitialized else { return false }
         let escaped = NativePolyfills.escapeForJS(method)
 

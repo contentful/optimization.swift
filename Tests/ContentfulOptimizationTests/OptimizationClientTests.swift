@@ -1,7 +1,9 @@
 import Combine
+@testable import Contentful
+@testable import ContentfulOptimization
+import Foundation
 import JavaScriptCore
 import XCTest
-@testable import ContentfulOptimization
 
 final class OptimizationClientTests: XCTestCase {
 
@@ -124,12 +126,12 @@ final class OptimizationClientTests: XCTestCase {
     func testConfigToJSONSerializesBridgeOnlyAnonymousIdDefault() throws {
         let config = OptimizationConfig(clientId: "test-client")
 
-        let json = try config.toJSON(anonymousId: "anonymous-id")
+        let json = try config.toJSON(anonymousId: "f0837d7dc6344c36a3a0a06c4cde754b")
         let data = json.data(using: .utf8)!
         let dict = try JSONSerialization.jsonObject(with: data) as! [String: Any]
         let defaults = dict["defaults"] as? [String: Any]
 
-        XCTAssertEqual(defaults?["anonymousId"] as? String, "anonymous-id")
+        XCTAssertEqual(defaults?["anonymousId"] as? String, "f0837d7dc6344c36a3a0a06c4cde754b")
     }
 
     func testConfigToJSONNormalizesExplicitLocale() throws {
@@ -216,7 +218,7 @@ final class OptimizationClientTests: XCTestCase {
 
     func testConfigSerializesDefaultsAsSelectedOptimizationsKey() throws {
         let seeded: [[String: Any]] = [
-            ["experienceId": "exp-1", "variantIndex": 2]
+            ["experienceId": "6IueRX1pS3iMJncbhUQTba", "variantIndex": 2]
         ]
         let config = OptimizationConfig(
             clientId: "test",
@@ -235,7 +237,7 @@ final class OptimizationClientTests: XCTestCase {
 
         let optimizations = defaults?["selectedOptimizations"] as? [[String: Any]]
         XCTAssertEqual(optimizations?.count, 1)
-        XCTAssertEqual(optimizations?.first?["experienceId"] as? String, "exp-1")
+        XCTAssertEqual(optimizations?.first?["experienceId"] as? String, "6IueRX1pS3iMJncbhUQTba")
         XCTAssertEqual(optimizations?.first?["variantIndex"] as? Int, 2)
     }
 
@@ -258,14 +260,14 @@ final class OptimizationClientTests: XCTestCase {
             consent: true,
             canOptimize: true,
             changes: nil,
-            selectedOptimizations: [["experienceId": "exp-1", "variantIndex": 1]]
+            selectedOptimizations: [["experienceId": "6IueRX1pS3iMJncbhUQTba", "variantIndex": 1]]
         )
         let b = OptimizationState(
             profile: ["userId": "test"] as [String: Any],
             consent: true,
             canOptimize: true,
             changes: nil,
-            selectedOptimizations: [["variantIndex": 1, "experienceId": "exp-1"]]
+            selectedOptimizations: [["variantIndex": 1, "experienceId": "6IueRX1pS3iMJncbhUQTba"]]
         )
         XCTAssertEqual(a, b)
     }
@@ -681,12 +683,12 @@ final class OptimizationClientTests: XCTestCase {
             ),
             defaults: StorageDefaults(
                 consent: true,
-                profile: ["id": "profile-1"],
+                profile: ["id": "f0837d7dc6344c36a3a0a06c4cde754b"],
                 changes: [[
                     "key": "boolean",
                     "type": "Variable",
                     "value": true,
-                    "meta": ["experienceId": "exp-1", "variantIndex": 1],
+                    "meta": ["experienceId": "6IueRX1pS3iMJncbhUQTba", "variantIndex": 1],
                 ]]
             )
         ))
@@ -794,9 +796,9 @@ final class OptimizationClientTests: XCTestCase {
             defaults: StorageDefaults(
                 consent: true,
                 persistenceConsent: true,
-                profile: ["id": "profile-before-reset", "stableId": "sid", "random": "r"],
+                profile: ["id": "a19c3f54d2b84e37a93f6d1c0e5b7284", "stableId": "f0837d7dc6344c36a3a0a06c4cde754b", "random": "r"],
                 changes: [["key": "hero.title", "type": "Variable", "value": "Hello"]],
-                selectedOptimizations: [["experienceId": "exp-1", "variantIndex": 1]]
+                selectedOptimizations: [["experienceId": "6IueRX1pS3iMJncbhUQTba", "variantIndex": 1]]
             )
         ))
 
@@ -827,9 +829,9 @@ final class OptimizationClientTests: XCTestCase {
             defaults: StorageDefaults(
                 consent: true,
                 persistenceConsent: true,
-                profile: ["id": "profile-before-destroy", "stableId": "sid", "random": "r"],
+                profile: ["id": "a19c3f54d2b84e37a93f6d1c0e5b7284", "stableId": "f0837d7dc6344c36a3a0a06c4cde754b", "random": "r"],
                 changes: [["key": "hero.title", "type": "Variable", "value": "Hello"]],
-                selectedOptimizations: [["experienceId": "exp-1", "variantIndex": 1]]
+                selectedOptimizations: [["experienceId": "6IueRX1pS3iMJncbhUQTba", "variantIndex": 1]]
             )
         ))
 
@@ -841,20 +843,20 @@ final class OptimizationClientTests: XCTestCase {
         store.loadProfileContinuity()
         XCTAssertEqual(store.consent, true)
         XCTAssertEqual(store.persistenceConsent, true)
-        XCTAssertEqual(store.profile?["id"] as? String, "profile-before-destroy")
+        XCTAssertEqual(store.profile?["id"] as? String, "a19c3f54d2b84e37a93f6d1c0e5b7284")
         XCTAssertNotNil(store.changes)
         XCTAssertNotNil(store.selectedOptimizations)
-        XCTAssertEqual(store.anonymousId, "profile-before-destroy")
+        XCTAssertEqual(store.anonymousId, "a19c3f54d2b84e37a93f6d1c0e5b7284")
     }
 
     func testStoreLoadConsentStateDoesNotLoadProfileContinuity() {
         let store = UserDefaultsStore()
         store.consent = true
         store.persistenceConsent = true
-        store.profile = ["id": "profile-id", "stableId": "sid", "random": "r"]
+        store.profile = ["id": "f0837d7dc6344c36a3a0a06c4cde754b", "stableId": "f0837d7dc6344c36a3a0a06c4cde754b", "random": "r"]
         store.changes = [["key": "hero.title", "type": "Variable", "value": "Hello"]]
-        store.selectedOptimizations = [["experienceId": "exp-1", "variantIndex": 1]]
-        store.anonymousId = "anonymous-id"
+        store.selectedOptimizations = [["experienceId": "6IueRX1pS3iMJncbhUQTba", "variantIndex": 1]]
+        store.anonymousId = "f0837d7dc6344c36a3a0a06c4cde754b"
 
         let reloadedStore = UserDefaultsStore()
         reloadedStore.loadConsentState()
@@ -868,10 +870,10 @@ final class OptimizationClientTests: XCTestCase {
 
         reloadedStore.loadProfileContinuity()
 
-        XCTAssertEqual(reloadedStore.profile?["id"] as? String, "profile-id")
+        XCTAssertEqual(reloadedStore.profile?["id"] as? String, "f0837d7dc6344c36a3a0a06c4cde754b")
         XCTAssertEqual(reloadedStore.changes?.first?["key"] as? String, "hero.title")
-        XCTAssertEqual(reloadedStore.selectedOptimizations?.first?["experienceId"] as? String, "exp-1")
-        XCTAssertEqual(reloadedStore.anonymousId, "anonymous-id")
+        XCTAssertEqual(reloadedStore.selectedOptimizations?.first?["experienceId"] as? String, "6IueRX1pS3iMJncbhUQTba")
+        XCTAssertEqual(reloadedStore.anonymousId, "f0837d7dc6344c36a3a0a06c4cde754b")
     }
 
     @MainActor
@@ -879,10 +881,10 @@ final class OptimizationClientTests: XCTestCase {
         let store = UserDefaultsStore()
         store.consent = true
         store.persistenceConsent = false
-        store.profile = ["id": "stored-profile", "stableId": "sid", "random": "r"]
+        store.profile = ["id": "f0837d7dc6344c36a3a0a06c4cde754b", "stableId": "f0837d7dc6344c36a3a0a06c4cde754b", "random": "r"]
         store.changes = [["key": "hero.title", "type": "Variable", "value": "Hello"]]
-        store.selectedOptimizations = [["experienceId": "exp-1", "variantIndex": 1]]
-        store.anonymousId = "anonymous-id"
+        store.selectedOptimizations = [["experienceId": "6IueRX1pS3iMJncbhUQTba", "variantIndex": 1]]
+        store.anonymousId = "f0837d7dc6344c36a3a0a06c4cde754b"
 
         let client = OptimizationClient()
         defer { client.destroy() }
@@ -915,10 +917,10 @@ final class OptimizationClientTests: XCTestCase {
         let store = UserDefaultsStore()
         store.consent = true
         store.persistenceConsent = true
-        store.profile = ["id": "stored-profile", "stableId": "sid", "random": "r"]
+        store.profile = ["id": "f0837d7dc6344c36a3a0a06c4cde754b", "stableId": "f0837d7dc6344c36a3a0a06c4cde754b", "random": "r"]
         store.changes = [["key": "hero.title", "type": "Variable", "value": "Hello"]]
-        store.selectedOptimizations = [["experienceId": "exp-1", "variantIndex": 1]]
-        store.anonymousId = "anonymous-id"
+        store.selectedOptimizations = [["experienceId": "6IueRX1pS3iMJncbhUQTba", "variantIndex": 1]]
+        store.anonymousId = "f0837d7dc6344c36a3a0a06c4cde754b"
 
         let client = OptimizationClient()
         defer { client.destroy() }
@@ -932,7 +934,7 @@ final class OptimizationClientTests: XCTestCase {
             )
         ))
 
-        XCTAssertEqual(client.getProfile()?["id"] as? String, "stored-profile")
+        XCTAssertEqual(client.getProfile()?["id"] as? String, "f0837d7dc6344c36a3a0a06c4cde754b")
     }
 
     @MainActor
@@ -1001,6 +1003,50 @@ final class OptimizationClientTests: XCTestCase {
         client.setOnline(false)
     }
 
+    @MainActor
+    func testClientHasConsentReturnsFalseBeforeInitialize() {
+        let client = OptimizationClient()
+
+        XCTAssertFalse(client.hasConsent(method: "trackView"))
+        XCTAssertFalse(client.hasConsent(method: "trackClick"))
+        XCTAssertFalse(client.hasConsent(method: "track"))
+    }
+
+    @MainActor
+    func testClientHasConsentReflectsAcceptedConsent() throws {
+        let client = OptimizationClient()
+        try client.initialize(config: OptimizationConfig(
+            clientId: "test-client",
+            api: OptimizationApiConfig(
+                experienceBaseUrl: "http://localhost:8000/experience/",
+                insightsBaseUrl: "http://localhost:8000/insights/"
+            ),
+            defaults: StorageDefaults(consent: true)
+        ))
+
+        XCTAssertTrue(client.hasConsent(method: "trackView"))
+        XCTAssertTrue(client.hasConsent(method: "trackClick"))
+        XCTAssertTrue(client.hasConsent(method: "track"))
+    }
+
+    @MainActor
+    func testClientHasConsentGatesByAllowedEventTypesWhenConsentDenied() throws {
+        let client = OptimizationClient()
+        try client.initialize(config: OptimizationConfig(
+            clientId: "test-client",
+            api: OptimizationApiConfig(
+                experienceBaseUrl: "http://localhost:8000/experience/",
+                insightsBaseUrl: "http://localhost:8000/insights/"
+            ),
+            defaults: StorageDefaults(consent: false),
+            allowedEventTypes: ["component"]
+        ))
+
+        XCTAssertTrue(client.hasConsent(method: "trackView"))
+        XCTAssertFalse(client.hasConsent(method: "trackClick"))
+        XCTAssertFalse(client.hasConsent(method: "track"))
+    }
+
     // MARK: - Phase 2: resolveOptimizedEntry Tests
 
     @MainActor
@@ -1009,8 +1055,32 @@ final class OptimizationClientTests: XCTestCase {
         let baseline: [String: Any] = ["sys": ["id": "entry1"], "fields": ["title": "Hello"]]
 
         let result = client.resolveOptimizedEntry(baseline: baseline)
-        XCTAssertEqual(result.entry["fields"] as? [String: String], ["title": "Hello"])
+        XCTAssertEqual(result.entry.getField("title"), "Hello")
         XCTAssertNil(result.selectedOptimization)
+        XCTAssertFalse(result.isEmptyVariant)
+    }
+
+    func testResolvedOptimizedEntryOnlyAcceptsJSONBooleanTrueAsEmptyVariant() throws {
+        let baseline = CTEntry(any: ["sys": ["id": "baseline"], "fields": [:]])
+        let cases: [(String, Bool)] = [
+            ("", false),
+            (", \"isEmptyVariant\": false", false),
+            (", \"isEmptyVariant\": true", true),
+            (", \"isEmptyVariant\": null", false),
+            (", \"isEmptyVariant\": 1", false),
+            (", \"isEmptyVariant\": \"true\"", false),
+            (", \"isEmptyVariant\": []", false),
+        ]
+
+        for (field, expected) in cases {
+            let data = Data("{\"entry\":{\"sys\":{\"id\":\"resolved\"},\"fields\":{}}\(field)}".utf8)
+            let payload = try JSONSerialization.jsonObject(with: data) as! [String: Any]
+
+            XCTAssertEqual(
+                ResolvedOptimizedEntry.fromBridgeResult(payload, baselineEntry: baseline).isEmptyVariant,
+                expected
+            )
+        }
     }
 
     @MainActor
@@ -1094,9 +1164,128 @@ final class OptimizationClientTests: XCTestCase {
         // resolveOptimizedEntry should round-trip the entry through JS and back
         // without losing fields (i.e. the JS bridge should actually process it)
         let result = client.resolveOptimizedEntry(baseline: baseline)
-        let fields = result.entry["fields"] as? [String: Any]
-        XCTAssertEqual(fields?["title"] as? String, "Hello")
-        XCTAssertEqual(fields?["slug"] as? String, "hello-world")
+        XCTAssertEqual(result.entry.getField("title"), "Hello")
+        XCTAssertEqual(result.entry.getField("slug"), "hello-world")
+    }
+
+    // MARK: - Phase 2: resolveOptimizedEntry(baseline: Contentful.Entry) Tests
+
+    private static let localizationContext: LocalizationContext = {
+        let localeJSON = Data("""
+        {"code":"en-US","default":true,"name":"English","fallbackCode":null}
+        """.utf8)
+        let locale = try! JSONDecoder.withoutLocalizationContext().decode(Contentful.Locale.self, from: localeJSON)
+        return LocalizationContext(locales: [locale])!
+    }()
+
+    private func decodeEntry(_ json: String) throws -> Entry {
+        let decoder = JSONDecoder.withoutLocalizationContext()
+        decoder.update(with: Self.localizationContext)
+        decoder.userInfo[.init(rawValue: "linkResolverContext")!] = NSObject()
+        return try decoder.decode(Entry.self, from: Data(json.utf8))
+    }
+
+    @MainActor
+    func testResolveOptimizedEntryContentfulOverloadFallsBackToMappedBaselineEntry() throws {
+        let entry = try decodeEntry("""
+        {
+          "sys": {"id": "entry-1", "type": "Entry", "locale": "en-US",
+                   "contentType": {"sys": {"id": "test", "type": "Link", "linkType": "ContentType"}}},
+          "fields": {"title": "Default Title"}
+        }
+        """)
+        let client = OptimizationClient()
+
+        let result = client.resolveOptimizedEntry(baseline: entry)
+
+        XCTAssertEqual(result.entry.id, "entry-1")
+        XCTAssertEqual(result.entry.getField("title"), "Default Title")
+        XCTAssertNil(result.selectedOptimization)
+        XCTAssertNil(result.optimizationContextId)
+    }
+
+    /// Proves this overload actually routes through `CTEntry(_: Contentful.Entry)` rather than some
+    /// other conversion: a resolved link on the baseline must come back expanded exactly as
+    /// `CTEntry(_: Contentful.Entry)` would produce it, readable via `getField`.
+    @MainActor
+    func testResolveOptimizedEntryContentfulOverloadFallbackEntryHasLinksExpanded() throws {
+        let parent = try decodeEntry("""
+        {
+          "sys": {"id": "parent", "type": "Entry", "locale": "en-US",
+                   "contentType": {"sys": {"id": "test", "type": "Link", "linkType": "ContentType"}}},
+          "fields": {"child": {"sys": {"id": "child-1", "type": "Link", "linkType": "Entry"}}}
+        }
+        """)
+        let child = try decodeEntry("""
+        {
+          "sys": {"id": "child-1", "type": "Entry", "locale": "en-US",
+                   "contentType": {"sys": {"id": "test", "type": "Link", "linkType": "ContentType"}}},
+          "fields": {"name": "child entry"}
+        }
+        """)
+        parent.resolveLinks(against: ["parent": parent, "child-1": child], and: [:])
+        let client = OptimizationClient()
+
+        let result = client.resolveOptimizedEntry(baseline: parent)
+
+        let childField: [String: Any]? = result.entry.getField("child")
+        XCTAssertEqual((childField?["sys"] as? [String: Any])?["id"] as? String, "child-1")
+        XCTAssertEqual((childField?["fields"] as? [String: Any])?["name"] as? String, "child entry", "the resolved link must have expanded inline, matching CTEntry's own behavior")
+    }
+
+    /// This overload must be a true *overload* of the existing method — same name,
+    /// `resolveOptimizedEntry`, resolved by Swift purely from the static type of `baseline` at the
+    /// call site (a dict picks the `[String: Any]` overload; a `Contentful.Entry` picks this one) —
+    /// not a differently-named method that merely does something similar. The identical call
+    /// syntax below, against two differently-typed `baseline` arguments, is what actually proves
+    /// overload resolution picked two distinct declarations rather than one generic one.
+    @MainActor
+    func testResolveOptimizedEntryIsATrueOverloadResolvedByBaselineArgumentType() throws {
+        let entry = try decodeEntry("""
+        {
+          "sys": {"id": "entry-1", "type": "Entry", "locale": "en-US",
+                   "contentType": {"sys": {"id": "test", "type": "Link", "linkType": "ContentType"}}},
+          "fields": {"title": "Hello"}
+        }
+        """)
+        let dict: [String: Any] = ["sys": ["id": "entry-1"], "fields": ["title": "Hello"]]
+        let client = OptimizationClient()
+
+        let dictResult = client.resolveOptimizedEntry(baseline: dict)
+        let entryResult = client.resolveOptimizedEntry(baseline: entry)
+
+        XCTAssertEqual(dictResult.entry.id, "entry-1")
+        XCTAssertEqual(entryResult.entry.id, "entry-1")
+    }
+
+    /// The fallback tests above only prove the fallback path; this round-trips a real
+    /// `Contentful.Entry` through an initialized client's JS bridge (mirroring
+    /// `testResolveOptimizedEntryPreservesFieldsWhenInitialized`, the dict-based overload's
+    /// equivalent test) and confirms fields survive and are readable via `getField`.
+    @MainActor
+    func testResolveOptimizedEntryContentfulOverloadRoundTripsFieldsThroughRealBridge() throws {
+        let entry = try decodeEntry("""
+        {
+          "sys": {"id": "entry1", "type": "Entry", "locale": "en-US",
+                   "contentType": {"sys": {"id": "page", "type": "Link", "linkType": "ContentType"}}},
+          "fields": {"title": "Hello", "slug": "hello-world"}
+        }
+        """)
+        let client = OptimizationClient()
+        let config = OptimizationConfig(
+            clientId: "test-client",
+            environment: "master",
+            api: OptimizationApiConfig(
+                experienceBaseUrl: "http://localhost:8000/experience/",
+                insightsBaseUrl: "http://localhost:8000/insights/"
+            )
+        )
+        try client.initialize(config: config)
+
+        let result = client.resolveOptimizedEntry(baseline: entry)
+
+        XCTAssertEqual(result.entry.getField("title"), "Hello", "the entry must actually round-trip through the JS bridge, not just fall back to the pre-mapped baseline")
+        XCTAssertEqual(result.entry.getField("slug"), "hello-world")
     }
 
     // MARK: - Phase 2: Payload Serialization Tests
@@ -1105,7 +1294,7 @@ final class OptimizationClientTests: XCTestCase {
         let payload = TrackViewPayload(
             componentId: "comp-1",
             viewId: "view-1",
-            experienceId: "exp-1",
+            experienceId: "6IueRX1pS3iMJncbhUQTba",
             optimizationContextId: "ctx-1",
             variantIndex: 2,
             viewDurationMs: 1500,
@@ -1119,7 +1308,7 @@ final class OptimizationClientTests: XCTestCase {
 
         XCTAssertEqual(dict["componentId"] as? String, "comp-1")
         XCTAssertEqual(dict["viewId"] as? String, "view-1")
-        XCTAssertEqual(dict["experienceId"] as? String, "exp-1")
+        XCTAssertEqual(dict["experienceId"] as? String, "6IueRX1pS3iMJncbhUQTba")
         XCTAssertEqual(dict["optimizationContextId"] as? String, "ctx-1")
         XCTAssertEqual(dict["variantIndex"] as? Int, 2)
         XCTAssertEqual(dict["viewDurationMs"] as? Int, 1500)
@@ -1149,7 +1338,7 @@ final class OptimizationClientTests: XCTestCase {
     func testTrackClickPayloadToJSON() throws {
         let payload = TrackClickPayload(
             componentId: "comp-1",
-            experienceId: "exp-1",
+            experienceId: "6IueRX1pS3iMJncbhUQTba",
             optimizationContextId: "ctx-1",
             variantIndex: 1
         )
@@ -1159,7 +1348,7 @@ final class OptimizationClientTests: XCTestCase {
         let dict = try JSONSerialization.jsonObject(with: data) as! [String: Any]
 
         XCTAssertEqual(dict["componentId"] as? String, "comp-1")
-        XCTAssertEqual(dict["experienceId"] as? String, "exp-1")
+        XCTAssertEqual(dict["experienceId"] as? String, "6IueRX1pS3iMJncbhUQTba")
         XCTAssertEqual(dict["optimizationContextId"] as? String, "ctx-1")
         XCTAssertEqual(dict["variantIndex"] as? Int, 1)
     }
@@ -1428,15 +1617,15 @@ final class OptimizationClientTests: XCTestCase {
     // MARK: - Phase 3: TrackingMetadata Tests
 
     func testTrackingMetadataExtraction() {
-        let entry: [String: Any] = ["sys": ["id": "entry-123"]]
+        let entry: [String: Any] = ["sys": ["id": "4ib0hsHWoSOnCVdDkizE8d"]]
         let selectedOptimization: [String: Any] = [
-            "experienceId": "exp-456",
+            "experienceId": "5jT8mNPxQ2rVuY4wZaB6Cd",
             "variantIndex": 2,
             "sticky": true,
         ]
         let metadata = TrackingMetadata(entry: entry, selectedOptimization: selectedOptimization)
-        XCTAssertEqual(metadata.componentId, "entry-123")
-        XCTAssertEqual(metadata.experienceId, "exp-456")
+        XCTAssertEqual(metadata.componentId, "4ib0hsHWoSOnCVdDkizE8d")
+        XCTAssertEqual(metadata.experienceId, "5jT8mNPxQ2rVuY4wZaB6Cd")
         XCTAssertEqual(metadata.variantIndex, 2)
         XCTAssertEqual(metadata.sticky, true)
     }
@@ -1726,13 +1915,13 @@ final class OptimizationClientTests: XCTestCase {
     func testOptimizationResolvesBaselineWithNoOptimizations() {
         let client = OptimizationClient()
         let baseline: [String: Any] = [
-            "sys": ["id": "entry-1"],
+            "sys": ["id": "4ib0hsHWoSOnCVdDkizE8d"],
             "fields": ["title": "Default Title"],
         ]
 
         // Without initialization, resolveOptimizedEntry returns baseline
         let result = client.resolveOptimizedEntry(baseline: baseline)
-        XCTAssertEqual(result.entry["sys"] as? [String: String], ["id": "entry-1"])
+        XCTAssertEqual(result.entry.id, "4ib0hsHWoSOnCVdDkizE8d")
         XCTAssertNil(result.selectedOptimization)
         XCTAssertNil(result.optimizationContextId)
     }
@@ -1841,13 +2030,13 @@ final class OptimizationClientTests: XCTestCase {
                 insightsBaseUrl: "http://localhost:8000/insights/"
             ),
             defaults: StorageDefaults(persistenceConsent: true, profile: [
-                "id": "abc-123", "stableId": "sid", "random": "r"
+                "id": "f0837d7dc6344c36a3a0a06c4cde754b", "stableId": "f0837d7dc6344c36a3a0a06c4cde754b", "random": "r"
             ])
         ))
 
         try await Task.sleep(nanoseconds: 200_000_000)
 
-        XCTAssertEqual(readStoredAnonymousId(), "abc-123",
+        XCTAssertEqual(readStoredAnonymousId(), "f0837d7dc6344c36a3a0a06c4cde754b",
                        "Profile.id must be written through to stored anonymousId")
     }
 
@@ -1864,11 +2053,11 @@ final class OptimizationClientTests: XCTestCase {
                 insightsBaseUrl: "http://localhost:8000/insights/"
             ),
             defaults: StorageDefaults(persistenceConsent: true, profile: [
-                "id": "first-id", "stableId": "sid", "random": "r"
+                "id": "a19c3f54d2b84e37a93f6d1c0e5b7284", "stableId": "f0837d7dc6344c36a3a0a06c4cde754b", "random": "r"
             ])
         ))
         try await Task.sleep(nanoseconds: 200_000_000)
-        XCTAssertEqual(readStoredAnonymousId(), "first-id")
+        XCTAssertEqual(readStoredAnonymousId(), "a19c3f54d2b84e37a93f6d1c0e5b7284")
 
         client.testOnlyEvaluateScript("""
             __bridge.destroy();
@@ -1881,13 +2070,13 @@ final class OptimizationClientTests: XCTestCase {
                 },
                 defaults: {
                     persistenceConsent: true,
-                    profile: { stableId: "sid", random: "r" }
+                    profile: { stableId: "f0837d7dc6344c36a3a0a06c4cde754b", random: "r" }
                 }
             });
         """)
         try await Task.sleep(nanoseconds: 200_000_000)
 
-        XCTAssertEqual(readStoredAnonymousId(), "first-id",
+        XCTAssertEqual(readStoredAnonymousId(), "a19c3f54d2b84e37a93f6d1c0e5b7284",
                        "Previously-stored anonymousId must be preserved when new profile omits id")
     }
 
@@ -1918,7 +2107,7 @@ final class OptimizationClientTests: XCTestCase {
                 },
                 defaults: {
                     changes: [
-                        { key: "hero.title", type: "Variable", meta: { experienceId: "exp-1", variantIndex: 1 }, value: "Hello" }
+                        { key: "hero.title", type: "Variable", meta: { experienceId: "6IueRX1pS3iMJncbhUQTba", variantIndex: 1 }, value: "Hello" }
                     ]
                 }
             });

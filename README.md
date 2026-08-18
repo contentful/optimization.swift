@@ -16,10 +16,6 @@
 
 </div>
 
-> [!WARNING]
->
-> The Optimization iOS SDK is in beta. Breaking changes can be published at any time.
-
 > [!NOTE]
 >
 > Source lives at
@@ -31,7 +27,7 @@
 optimization behavior through a local JavaScriptCore bridge while Swift code owns native app
 concerns such as persistence, networking, lifecycle handling, SwiftUI views, and preview-panel UI.
 
-Requires iOS 15 / macOS 12 or later.
+Requires iOS 15 or later.
 
 ## Installation
 
@@ -162,9 +158,10 @@ let config = OptimizationConfig(
 )
 ```
 
-Use the same `appLocale` when your app-owned Contentful Delivery API client fetches entries that
-will be passed to `OptimizedEntry` or `client.resolveOptimizedEntry(...)`. The native SDK does not
-fetch Contentful entries for your app layer, so the CDA locale belongs in your CDA request code.
+Use the same `appLocale` when your app-owned Contentful Delivery API client queries an entry by
+content type and slug. Pass that fetched single-locale entry to `OptimizedEntry` or
+`client.resolveOptimizedEntry(...)`. The native iOS SDK does not provide managed entry fetching, so
+the lookup values and CDA request remain in your app.
 
 ## Runtime notes
 
@@ -177,6 +174,7 @@ fetch Contentful entries for your app layer, so the CDA locale belongs in your C
   `AnyPublisher<JSONValue?, Never>` that updates as flag values change.
 - Use `client.eventStream` and `client.blockedEventStream` for analytics debugging, tests, and
   consent-gating diagnostics.
+- Use `CTEntry.contentTypeId` to select app-owned rendering for baseline and variant content types.
 - SwiftUI entry view and tap tracking default to enabled. Pass `trackViews: false` or
   `trackTaps: false` to `OptimizationRoot` or `OptimizedEntry` when a screen or entry must opt out.
 - Analytics events queue while the device is offline and flush when connectivity returns or the app
