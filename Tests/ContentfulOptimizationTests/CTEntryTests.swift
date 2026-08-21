@@ -1176,9 +1176,28 @@ final class CTEntryTests: XCTestCase {
         ])
 
         XCTAssertEqual(resolved.getField("title"), "Hello")
-        // `JSONValue.number` has no separate Int case — an Int field round-trips as Double.
+        // `JSONValue.number` has no separate Int case — a numeric field round-trips as Double,
+        // so requesting it as `Double` still returns the value. See
+        // `testGetFieldReturnsIntForWholeNumberField` for the `Int`-request coercion path.
         XCTAssertEqual(resolved.getField("count"), 3.0)
         XCTAssertEqual(resolved.getField("isFeatured"), true)
+    }
+
+    /// Regression for NT-4001: `JSONValue.number` stores `Double`, so a whole-number field must
+    /// still resolve when the caller requests `Int` rather than silently returning `nil`.
+    func testGetFieldReturnsIntForWholeNumberField() {
+        let resolved = CTEntry(any: ["sys": ["id": "e1"], "fields": ["count": 3.0]])
+
+        XCTAssertEqual(resolved.getField("count"), 3)
+    }
+
+    /// A fractional field has no exact `Int` representation, so requesting it as `Int` must fail
+    /// the cast and return `nil` rather than truncating.
+    func testGetFieldReturnsNilForFractionalFieldRequestedAsInt() {
+        let resolved = CTEntry(any: ["sys": ["id": "e1"], "fields": ["price": 3.5]])
+
+        let asInt: Int? = resolved.getField("price")
+        XCTAssertNil(asInt)
     }
 
     func testGetFieldReturnsNilForWrongRequestedType() {
@@ -1339,5 +1358,51 @@ final class CTEntryTests: XCTestCase {
         let resolved = CTEntry(any: ["fields": ["publishedAt": Date()]], fallback: fallback)
 
         XCTAssertEqual(resolved.id, "fallback-id")
+    }
+
+    // MARK: - The public construction surface
+
+    /// `init(dictionary:fallback:)` and `init(json:)` are what a consumer holding a raw CDA entry
+    /// (an expanded child entry, a locally built one) uses to read it through `getField`/`hasField`
+    /// rather than `as?` casts. They mirror `CTEntry.from(any:)`/`from(json:)` on Android.
+    func testInitDictionaryReadsSysAndFields() {
+        let resolved = CTEntry(dictionary: [
+            "sys": [
+                "id": "e1",
+                "contentType": ["sys": ["id": "content", "type": "Link", "linkType": "ContentType"]],
+            ],
+            "fields": ["title": "Hello"],
+        ])
+
+        XCTAssertEqual(resolved.id, "e1")
+        XCTAssertEqual(resolved.contentTypeId, "content")
+        XCTAssertEqual(resolved[field: "title"], "Hello")
+    }
+
+    func testInitDictionaryFallsBackForUnsupportedType() {
+        let resolved = CTEntry(dictionary: ["fields": ["publishedAt": Date()]])
+
+        XCTAssertNil(resolved.id)
+        XCTAssertFalse(resolved.hasField("publishedAt"))
+    }
+
+    func testInitDictionaryUsesProvidedFallback() {
+        let fallback = CTEntry(dictionary: ["sys": ["id": "fallback-id"], "fields": [:]])
+        let resolved = CTEntry(dictionary: ["fields": ["publishedAt": Date()]], fallback: fallback)
+
+        XCTAssertEqual(resolved.id, "fallback-id")
+    }
+
+    func testInitJSONReadsSysAndFields() throws {
+        let resolved = try CTEntry(json: """
+        {"sys":{"id":"e1"},"fields":{"title":"Hello"}}
+        """)
+
+        XCTAssertEqual(resolved.id, "e1")
+        XCTAssertEqual(resolved[field: "title"], "Hello")
+    }
+
+    func testInitJSONThrowsForMalformedJSON() {
+        XCTAssertThrowsError(try CTEntry(json: "not json"))
     }
 }
